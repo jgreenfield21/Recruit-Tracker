@@ -251,7 +251,9 @@ export async function registerRoutes(
       }
 
       const transporter = nodemailer.createTransport({
-        service: "gmail",
+        host: "smtp.mail.me.com",
+        port: 587,
+        secure: false,
         auth: {
           user: settings.email,
           pass: settings.appPassword,
@@ -280,7 +282,9 @@ export async function registerRoutes(
       }
 
       const transporter = nodemailer.createTransport({
-        service: "gmail",
+        host: "smtp.mail.me.com",
+        port: 587,
+        secure: false,
         auth: {
           user: settings.email,
           pass: settings.appPassword,
@@ -405,7 +409,9 @@ export async function registerRoutes(
       }
 
       const transporter = nodemailer.createTransport({
-        service: "gmail",
+        host: "smtp.mail.me.com",
+        port: 587,
+        secure: false,
         auth: {
           user: settings.email,
           pass: settings.appPassword,

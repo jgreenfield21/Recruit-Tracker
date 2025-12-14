@@ -36,7 +36,7 @@ import { useNotifications } from "@/hooks/use-notifications";
 import type { GmailSettings } from "@shared/schema";
 
 const formSchema = z.object({
-  email: z.string().email("Please enter a valid Gmail address"),
+  email: z.string().email("Please enter a valid iCloud email address"),
   appPassword: z.string().min(1, "App password is required"),
 });
 
@@ -68,7 +68,7 @@ export default function Settings() {
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/gmail-settings"] });
-      toast({ title: "Gmail settings saved successfully" });
+      toast({ title: "iCloud Mail settings saved successfully" });
       form.reset({ email: form.getValues("email"), appPassword: "" });
     },
     onError: () => {
@@ -79,11 +79,11 @@ export default function Settings() {
   const testMutation = useMutation({
     mutationFn: () => apiRequest("POST", "/api/test-gmail"),
     onSuccess: () => {
-      toast({ title: "Gmail connection successful!" });
+      toast({ title: "iCloud Mail connection successful!" });
     },
     onError: (error: any) => {
       toast({
-        title: "Gmail connection failed",
+        title: "iCloud Mail connection failed",
         description: error.message || "Please check your credentials",
         variant: "destructive",
       });
@@ -111,10 +111,10 @@ export default function Settings() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Mail className="h-5 w-5" />
-            Gmail Integration
+            iCloud Mail Integration
           </CardTitle>
           <CardDescription>
-            Connect your Gmail account to send emails directly from the app
+            Connect your iCloud Mail account to send emails directly from the app
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
@@ -123,7 +123,7 @@ export default function Settings() {
               <Check className="h-4 w-4" />
               <AlertTitle>Connected</AlertTitle>
               <AlertDescription>
-                Your Gmail account ({settings.email}) is configured and ready to use.
+                Your iCloud Mail account ({settings.email}) is configured and ready to use.
               </AlertDescription>
             </Alert>
           ) : (
@@ -131,27 +131,27 @@ export default function Settings() {
               <AlertCircle className="h-4 w-4" />
               <AlertTitle>Not Connected</AlertTitle>
               <AlertDescription>
-                Set up your Gmail credentials to enable email sending.
+                Set up your iCloud Mail credentials to enable email sending.
               </AlertDescription>
             </Alert>
           )}
 
           <div className="rounded-md bg-muted/50 p-4 space-y-3">
-            <h4 className="font-medium text-sm">How to get your Gmail App Password:</h4>
+            <h4 className="font-medium text-sm">How to get your iCloud App Password:</h4>
             <ol className="text-sm text-muted-foreground space-y-2 list-decimal list-inside">
-              <li>Go to your Google Account settings</li>
-              <li>Navigate to Security → 2-Step Verification (enable if not already)</li>
-              <li>At the bottom, find "App passwords"</li>
-              <li>Select "Mail" as the app and "Other" as device (name it "RecruitTrack")</li>
-              <li>Copy the 16-character password generated</li>
+              <li>Enable Two-Factor Authentication on your Apple ID (if not already)</li>
+              <li>Go to appleid.apple.com and sign in</li>
+              <li>Navigate to Sign-In and Security → App-Specific Passwords</li>
+              <li>Click "Generate an app-specific password"</li>
+              <li>Enter a label like "RecruitTrack" and copy the generated password</li>
             </ol>
             <a
-              href="https://myaccount.google.com/apppasswords"
+              href="https://appleid.apple.com/account/manage"
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center text-sm text-primary hover:underline"
             >
-              Open Google App Passwords
+              Open Apple ID Settings
               <ExternalLink className="h-3 w-3 ml-1" />
             </a>
           </div>
@@ -165,17 +165,17 @@ export default function Settings() {
                 name="email"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Gmail Address</FormLabel>
+                    <FormLabel>iCloud Email Address</FormLabel>
                     <FormControl>
                       <Input
                         type="email"
-                        placeholder="your.email@gmail.com"
+                        placeholder="your.email@icloud.com"
                         {...field}
                         data-testid="input-gmail-email"
                       />
                     </FormControl>
                     <FormDescription>
-                      The Gmail address you'll use to send emails
+                      Your iCloud email address (e.g., you@icloud.com or you@me.com)
                     </FormDescription>
                     <FormMessage />
                   </FormItem>
@@ -187,12 +187,12 @@ export default function Settings() {
                 name="appPassword"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>App Password</FormLabel>
+                    <FormLabel>App-Specific Password</FormLabel>
                     <FormControl>
                       <div className="relative">
                         <Input
                           type={showPassword ? "text" : "password"}
-                          placeholder="xxxx xxxx xxxx xxxx"
+                          placeholder="xxxx-xxxx-xxxx-xxxx"
                           {...field}
                           data-testid="input-gmail-password"
                         />
@@ -212,7 +212,7 @@ export default function Settings() {
                       </div>
                     </FormControl>
                     <FormDescription>
-                      The 16-character app password from Google (not your regular password)
+                      The app-specific password from Apple (not your regular Apple ID password)
                     </FormDescription>
                     <FormMessage />
                   </FormItem>
