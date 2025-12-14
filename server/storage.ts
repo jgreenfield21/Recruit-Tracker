@@ -1,20 +1,29 @@
-import type {
-  Coach,
-  InsertCoach,
-  Contact,
-  InsertContact,
-  Reminder,
-  InsertReminder,
-  EmailTemplate,
-  InsertEmailTemplate,
-  GmailSettings,
-  InsertGmailSettings,
-  ScheduledEmail,
-  InsertScheduledEmail,
+import {
+  type Coach,
+  type InsertCoach,
+  type Contact,
+  type InsertContact,
+  type Reminder,
+  type InsertReminder,
+  type EmailTemplate,
+  type InsertEmailTemplate,
+  type GmailSettings,
+  type InsertGmailSettings,
+  type ScheduledEmail,
+  type InsertScheduledEmail,
+  type User,
+  type UpsertUser,
+  users,
 } from "@shared/schema";
 import { randomUUID } from "crypto";
+import { db } from "./db";
+import { eq } from "drizzle-orm";
 
 export interface IStorage {
+  // Users (required for Replit Auth)
+  getUser(id: string): Promise<User | undefined>;
+  upsertUser(user: UpsertUser): Promise<User>;
+
   // Coaches
   getCoaches(): Promise<Coach[]>;
   getCoach(id: string): Promise<Coach | undefined>;
@@ -64,6 +73,26 @@ export class MemStorage implements IStorage {
 
   constructor() {
     this.seedData();
+  }
+
+  async getUser(id: string): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(eq(users.id, id));
+    return user;
+  }
+
+  async upsertUser(userData: UpsertUser): Promise<User> {
+    const [user] = await db
+      .insert(users)
+      .values(userData)
+      .onConflictDoUpdate({
+        target: users.id,
+        set: {
+          ...userData,
+          updatedAt: new Date(),
+        },
+      })
+      .returning();
+    return user;
   }
 
   private seedData() {

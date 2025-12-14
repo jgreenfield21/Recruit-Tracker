@@ -4,13 +4,27 @@ import { storage } from "./storage";
 import nodemailer from "nodemailer";
 import { insertCoachSchema, insertContactSchema, insertReminderSchema, insertEmailTemplateSchema, insertGmailSettingsSchema, insertScheduledEmailSchema } from "@shared/schema";
 import { z } from "zod";
+import { setupAuth, isAuthenticated } from "./replitAuth";
 
 export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
+  await setupAuth(app);
+
+  app.get('/api/auth/user', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const user = await storage.getUser(userId);
+      res.json(user);
+    } catch (error) {
+      console.error("Error fetching user:", error);
+      res.status(500).json({ message: "Failed to fetch user" });
+    }
+  });
+
   // Coaches
-  app.get("/api/coaches", async (req, res) => {
+  app.get("/api/coaches", isAuthenticated, async (req, res) => {
     try {
       const coaches = await storage.getCoaches();
       res.json(coaches);
@@ -19,7 +33,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/coaches/:id", async (req, res) => {
+  app.get("/api/coaches/:id", isAuthenticated, async (req, res) => {
     try {
       const coach = await storage.getCoach(req.params.id);
       if (!coach) {
@@ -31,7 +45,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/coaches", async (req, res) => {
+  app.post("/api/coaches", isAuthenticated, async (req, res) => {
     try {
       const data = insertCoachSchema.parse(req.body);
       const coach = await storage.createCoach(data);
@@ -44,7 +58,7 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/coaches/:id", async (req, res) => {
+  app.patch("/api/coaches/:id", isAuthenticated, async (req, res) => {
     try {
       const data = insertCoachSchema.partial().parse(req.body);
       const coach = await storage.updateCoach(req.params.id, data);
@@ -60,7 +74,7 @@ export async function registerRoutes(
     }
   });
 
-  app.delete("/api/coaches/:id", async (req, res) => {
+  app.delete("/api/coaches/:id", isAuthenticated, async (req, res) => {
     try {
       const deleted = await storage.deleteCoach(req.params.id);
       if (!deleted) {
@@ -73,7 +87,7 @@ export async function registerRoutes(
   });
 
   // Contacts
-  app.get("/api/contacts", async (req, res) => {
+  app.get("/api/contacts", isAuthenticated, async (req, res) => {
     try {
       const contacts = await storage.getContacts();
       res.json(contacts);
@@ -82,12 +96,11 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/contacts", async (req, res) => {
+  app.post("/api/contacts", isAuthenticated, async (req, res) => {
     try {
       const data = insertContactSchema.parse(req.body);
       const contact = await storage.createContact(data);
       
-      // Update coach status to "contacted" if it was "not_contacted"
       const coach = await storage.getCoach(data.coachId);
       if (coach && coach.status === "not_contacted") {
         await storage.updateCoach(data.coachId, { status: "contacted" });
@@ -103,7 +116,7 @@ export async function registerRoutes(
   });
 
   // Reminders
-  app.get("/api/reminders", async (req, res) => {
+  app.get("/api/reminders", isAuthenticated, async (req, res) => {
     try {
       const reminders = await storage.getReminders();
       res.json(reminders);
@@ -112,7 +125,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/reminders", async (req, res) => {
+  app.post("/api/reminders", isAuthenticated, async (req, res) => {
     try {
       const data = insertReminderSchema.parse(req.body);
       const reminder = await storage.createReminder(data);
@@ -125,7 +138,7 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/reminders/:id", async (req, res) => {
+  app.patch("/api/reminders/:id", isAuthenticated, async (req, res) => {
     try {
       const data = insertReminderSchema.partial().parse(req.body);
       const reminder = await storage.updateReminder(req.params.id, data);
@@ -141,7 +154,7 @@ export async function registerRoutes(
     }
   });
 
-  app.delete("/api/reminders/:id", async (req, res) => {
+  app.delete("/api/reminders/:id", isAuthenticated, async (req, res) => {
     try {
       const deleted = await storage.deleteReminder(req.params.id);
       if (!deleted) {
@@ -154,7 +167,7 @@ export async function registerRoutes(
   });
 
   // Email Templates
-  app.get("/api/templates", async (req, res) => {
+  app.get("/api/templates", isAuthenticated, async (req, res) => {
     try {
       const templates = await storage.getTemplates();
       res.json(templates);
@@ -163,7 +176,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/templates", async (req, res) => {
+  app.post("/api/templates", isAuthenticated, async (req, res) => {
     try {
       const data = insertEmailTemplateSchema.parse(req.body);
       const template = await storage.createTemplate(data);
@@ -176,7 +189,7 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/templates/:id", async (req, res) => {
+  app.patch("/api/templates/:id", isAuthenticated, async (req, res) => {
     try {
       const data = insertEmailTemplateSchema.partial().parse(req.body);
       const template = await storage.updateTemplate(req.params.id, data);
@@ -192,7 +205,7 @@ export async function registerRoutes(
     }
   });
 
-  app.delete("/api/templates/:id", async (req, res) => {
+  app.delete("/api/templates/:id", isAuthenticated, async (req, res) => {
     try {
       const deleted = await storage.deleteTemplate(req.params.id);
       if (!deleted) {
@@ -205,20 +218,19 @@ export async function registerRoutes(
   });
 
   // Gmail Settings
-  app.get("/api/gmail-settings", async (req, res) => {
+  app.get("/api/gmail-settings", isAuthenticated, async (req, res) => {
     try {
       const settings = await storage.getGmailSettings();
       if (!settings) {
         return res.json({ configured: false });
       }
-      // Don't send the password back
       res.json({ id: settings.id, email: settings.email, configured: settings.configured });
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch Gmail settings" });
     }
   });
 
-  app.post("/api/gmail-settings", async (req, res) => {
+  app.post("/api/gmail-settings", isAuthenticated, async (req, res) => {
     try {
       const data = insertGmailSettingsSchema.parse(req.body);
       const settings = await storage.saveGmailSettings(data);
@@ -231,7 +243,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/test-gmail", async (req, res) => {
+  app.post("/api/test-gmail", isAuthenticated, async (req, res) => {
     try {
       const settings = await storage.getGmailSettings();
       if (!settings || !settings.configured) {
@@ -254,7 +266,7 @@ export async function registerRoutes(
   });
 
   // Send Emails
-  app.post("/api/send-emails", async (req, res) => {
+  app.post("/api/send-emails", isAuthenticated, async (req, res) => {
     try {
       const { coachIds, subject, body } = req.body;
 
@@ -280,7 +292,6 @@ export async function registerRoutes(
         const coach = await storage.getCoach(coachId);
         if (!coach) continue;
 
-        // Apply merge fields
         const personalizedSubject = subject
           .replace(/\{\{coach_name\}\}/g, coach.name)
           .replace(/\{\{salutation\}\}/g, coach.salutation || coach.name.split(" ")[0])
@@ -301,7 +312,6 @@ export async function registerRoutes(
             text: personalizedBody,
           });
 
-          // Log the contact
           await storage.createContact({
             coachId: coach.id,
             date: new Date().toISOString().split("T")[0],
@@ -310,7 +320,6 @@ export async function registerRoutes(
             notes: "Sent via RecruitTrack",
           });
 
-          // Update coach status
           if (coach.status === "not_contacted") {
             await storage.updateCoach(coach.id, { status: "awaiting_response" });
           }
@@ -338,7 +347,7 @@ export async function registerRoutes(
   });
 
   // Scheduled Emails
-  app.get("/api/scheduled-emails", async (req, res) => {
+  app.get("/api/scheduled-emails", isAuthenticated, async (req, res) => {
     try {
       const emails = await storage.getScheduledEmails();
       res.json(emails);
@@ -347,7 +356,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/scheduled-emails", async (req, res) => {
+  app.post("/api/scheduled-emails", isAuthenticated, async (req, res) => {
     try {
       const { coachIds, subject, body, scheduledAt } = req.body;
       
@@ -374,7 +383,7 @@ export async function registerRoutes(
     }
   });
 
-  app.delete("/api/scheduled-emails/:id", async (req, res) => {
+  app.delete("/api/scheduled-emails/:id", isAuthenticated, async (req, res) => {
     try {
       const deleted = await storage.deleteScheduledEmail(req.params.id);
       if (!deleted) {
@@ -386,7 +395,6 @@ export async function registerRoutes(
     }
   });
 
-  // Background job to process scheduled emails (runs every minute)
   const processScheduledEmails = async () => {
     try {
       const pendingEmails = await storage.getPendingScheduledEmails();
@@ -457,17 +465,14 @@ export async function registerRoutes(
     }
   };
 
-  // Run the scheduled email processor every minute
   setInterval(processScheduledEmails, 60000);
 
-  // CSV utility to escape cell values properly
   const escapeCsvCell = (value: string | null | undefined): string => {
     const str = (value ?? "").toString();
     return str.replace(/"/g, '""');
   };
 
-  // Export CSV endpoints
-  app.get("/api/export/coaches", async (req, res) => {
+  app.get("/api/export/coaches", isAuthenticated, async (req, res) => {
     try {
       const coaches = await storage.getCoaches();
       
@@ -496,7 +501,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/export/contacts", async (req, res) => {
+  app.get("/api/export/contacts", isAuthenticated, async (req, res) => {
     try {
       const contacts = await storage.getContacts();
       const coaches = await storage.getCoaches();
