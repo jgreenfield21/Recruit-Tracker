@@ -1,13 +1,16 @@
 import { useState, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { format, parseISO } from "date-fns";
 import {
   Send,
   Users,
   FileText,
   Eye,
-  Check,
-  AlertCircle,
   Loader2,
+  Clock,
+  Calendar,
+  X,
+  AlertCircle,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -30,11 +33,12 @@ import {
 } from "@/components/ui/alert";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { EmptyState } from "@/components/empty-state";
 import { LoadingState } from "@/components/loading-state";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import type { Coach, EmailTemplate, GmailSettings } from "@shared/schema";
+import type { Coach, EmailTemplate, GmailSettings, ScheduledEmail } from "@shared/schema";
 
 export default function Compose() {
   const [selectedCoaches, setSelectedCoaches] = useState<Set<string>>(new Set());
@@ -42,6 +46,8 @@ export default function Compose() {
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
   const [previewCoachId, setPreviewCoachId] = useState<string | null>(null);
+  const [scheduledDate, setScheduledDate] = useState("");
+  const [scheduledTime, setScheduledTime] = useState("");
   const { toast } = useToast();
 
   const { data: coaches, isLoading: loadingCoaches } = useQuery<Coach[]>({
@@ -56,16 +62,17 @@ export default function Compose() {
     queryKey: ["/api/gmail-settings"],
   });
 
+  const { data: scheduledEmails, isLoading: loadingScheduled } = useQuery<ScheduledEmail[]>({
+    queryKey: ["/api/scheduled-emails"],
+  });
+
   const sendMutation = useMutation({
     mutationFn: (data: { coachIds: string[]; subject: string; body: string }) =>
       apiRequest("POST", "/api/send-emails", data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/contacts"] });
       toast({ title: "Emails sent successfully!" });
-      setSelectedCoaches(new Set());
-      setSubject("");
-      setBody("");
-      setSelectedTemplateId("");
+      resetForm();
     },
     onError: (error: any) => {
       toast({
@@ -76,12 +83,45 @@ export default function Compose() {
     },
   });
 
-  const isLoading = loadingCoaches || loadingTemplates || loadingSettings;
-  const isGmailConfigured = gmailSettings?.configured;
+  const scheduleMutation = useMutation({
+    mutationFn: (data: { coachIds: string[]; subject: string; body: string; scheduledAt: string }) =>
+      apiRequest("POST", "/api/scheduled-emails", data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/scheduled-emails"] });
+      toast({ title: "Emails scheduled successfully!" });
+      resetForm();
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Failed to schedule emails",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
 
-  const selectedTemplate = useMemo(() => {
-    return templates?.find((t) => t.id === selectedTemplateId);
-  }, [templates, selectedTemplateId]);
+  const cancelScheduleMutation = useMutation({
+    mutationFn: (id: string) => apiRequest("DELETE", `/api/scheduled-emails/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/scheduled-emails"] });
+      toast({ title: "Scheduled email cancelled" });
+    },
+    onError: () => {
+      toast({ title: "Failed to cancel", variant: "destructive" });
+    },
+  });
+
+  const resetForm = () => {
+    setSelectedCoaches(new Set());
+    setSubject("");
+    setBody("");
+    setSelectedTemplateId("");
+    setScheduledDate("");
+    setScheduledTime("");
+  };
+
+  const isLoading = loadingCoaches || loadingTemplates || loadingSettings || loadingScheduled;
+  const isGmailConfigured = gmailSettings?.configured;
 
   const handleTemplateSelect = (templateId: string) => {
     setSelectedTemplateId(templateId);
@@ -152,6 +192,46 @@ export default function Compose() {
     });
   };
 
+  const handleSchedule = () => {
+    if (selectedCoaches.size === 0) {
+      toast({ title: "Please select at least one coach", variant: "destructive" });
+      return;
+    }
+    if (!subject.trim() || !body.trim()) {
+      toast({ title: "Please fill in subject and body", variant: "destructive" });
+      return;
+    }
+    if (!scheduledDate || !scheduledTime) {
+      toast({ title: "Please select date and time", variant: "destructive" });
+      return;
+    }
+    
+    const scheduledAt = new Date(`${scheduledDate}T${scheduledTime}`).toISOString();
+    
+    if (new Date(scheduledAt) <= new Date()) {
+      toast({ title: "Scheduled time must be in the future", variant: "destructive" });
+      return;
+    }
+
+    scheduleMutation.mutate({
+      coachIds: Array.from(selectedCoaches),
+      subject,
+      body,
+      scheduledAt,
+    });
+  };
+
+  const pendingScheduledEmails = scheduledEmails?.filter((e) => e.status === "pending") || [];
+
+  const getScheduledCoachNames = (coachIdsJson: string) => {
+    try {
+      const ids = JSON.parse(coachIdsJson) as string[];
+      return ids.map((id) => coaches?.find((c) => c.id === id)?.name || "Unknown").join(", ");
+    } catch {
+      return "Unknown";
+    }
+  };
+
   if (isLoading) {
     return <LoadingState message="Loading..." />;
   }
@@ -210,7 +290,7 @@ export default function Compose() {
                       Select All ({coaches.length})
                     </Label>
                   </div>
-                  <ScrollArea className="h-[300px]">
+                  <ScrollArea className="h-[200px]">
                     <div className="space-y-2">
                       {coaches.map((coach) => (
                         <div
@@ -289,7 +369,7 @@ export default function Compose() {
 I am reaching out to introduce myself..."
                   value={body}
                   onChange={(e) => setBody(e.target.value)}
-                  rows={10}
+                  rows={8}
                   className="font-mono text-sm"
                   data-testid="input-email-body"
                 />
@@ -298,26 +378,130 @@ I am reaching out to introduce myself..."
                 </p>
               </div>
 
-              <Button
-                onClick={handleSend}
-                disabled={!isGmailConfigured || sendMutation.isPending || selectedCoaches.size === 0}
-                className="w-full"
-                data-testid="button-send-emails"
-              >
-                {sendMutation.isPending ? (
-                  <>
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    Sending...
-                  </>
-                ) : (
-                  <>
+              <Separator />
+
+              <Tabs defaultValue="send-now" className="w-full">
+                <TabsList className="grid w-full grid-cols-2">
+                  <TabsTrigger value="send-now" data-testid="tab-send-now">
                     <Send className="h-4 w-4 mr-2" />
-                    Send to {selectedCoaches.size} Coach{selectedCoaches.size !== 1 ? "es" : ""}
-                  </>
-                )}
-              </Button>
+                    Send Now
+                  </TabsTrigger>
+                  <TabsTrigger value="schedule" data-testid="tab-schedule">
+                    <Clock className="h-4 w-4 mr-2" />
+                    Schedule
+                  </TabsTrigger>
+                </TabsList>
+                <TabsContent value="send-now" className="pt-4">
+                  <Button
+                    onClick={handleSend}
+                    disabled={!isGmailConfigured || sendMutation.isPending || selectedCoaches.size === 0}
+                    className="w-full"
+                    data-testid="button-send-emails"
+                  >
+                    {sendMutation.isPending ? (
+                      <>
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        Sending...
+                      </>
+                    ) : (
+                      <>
+                        <Send className="h-4 w-4 mr-2" />
+                        Send to {selectedCoaches.size} Coach{selectedCoaches.size !== 1 ? "es" : ""}
+                      </>
+                    )}
+                  </Button>
+                </TabsContent>
+                <TabsContent value="schedule" className="space-y-4 pt-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="schedule-date">Date</Label>
+                      <Input
+                        id="schedule-date"
+                        type="date"
+                        value={scheduledDate}
+                        onChange={(e) => setScheduledDate(e.target.value)}
+                        min={new Date().toISOString().split("T")[0]}
+                        data-testid="input-schedule-date"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="schedule-time">Time</Label>
+                      <Input
+                        id="schedule-time"
+                        type="time"
+                        value={scheduledTime}
+                        onChange={(e) => setScheduledTime(e.target.value)}
+                        data-testid="input-schedule-time"
+                      />
+                    </div>
+                  </div>
+                  <Button
+                    onClick={handleSchedule}
+                    disabled={scheduleMutation.isPending || selectedCoaches.size === 0}
+                    className="w-full"
+                    variant="secondary"
+                    data-testid="button-schedule-emails"
+                  >
+                    {scheduleMutation.isPending ? (
+                      <>
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        Scheduling...
+                      </>
+                    ) : (
+                      <>
+                        <Calendar className="h-4 w-4 mr-2" />
+                        Schedule for {selectedCoaches.size} Coach{selectedCoaches.size !== 1 ? "es" : ""}
+                      </>
+                    )}
+                  </Button>
+                </TabsContent>
+              </Tabs>
             </CardContent>
           </Card>
+
+          {pendingScheduledEmails.length > 0 && (
+            <Card data-testid="card-scheduled-emails">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <Clock className="h-4 w-4" />
+                  Scheduled Emails
+                  <Badge variant="secondary">{pendingScheduledEmails.length}</Badge>
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <ScrollArea className="h-[150px]">
+                  <div className="space-y-3">
+                    {pendingScheduledEmails.map((email) => (
+                      <div
+                        key={email.id}
+                        className="flex items-center justify-between p-3 rounded-md bg-muted/50"
+                        data-testid={`scheduled-email-${email.id}`}
+                      >
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium truncate">{email.subject}</p>
+                          <p className="text-xs text-muted-foreground truncate">
+                            To: {getScheduledCoachNames(email.coachIds)}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            {format(parseISO(email.scheduledAt), "MMM d, yyyy 'at' h:mm a")}
+                          </p>
+                        </div>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          onClick={() => cancelScheduleMutation.mutate(email.id)}
+                          disabled={cancelScheduleMutation.isPending}
+                          data-testid={`button-cancel-scheduled-${email.id}`}
+                        >
+                          <X className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                </ScrollArea>
+              </CardContent>
+            </Card>
+          )}
         </div>
 
         <Card data-testid="card-email-preview">

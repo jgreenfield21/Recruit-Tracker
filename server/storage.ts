@@ -9,6 +9,8 @@ import type {
   InsertEmailTemplate,
   GmailSettings,
   InsertGmailSettings,
+  ScheduledEmail,
+  InsertScheduledEmail,
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 
@@ -43,6 +45,13 @@ export interface IStorage {
   // Gmail Settings
   getGmailSettings(): Promise<GmailSettings | undefined>;
   saveGmailSettings(settings: InsertGmailSettings): Promise<GmailSettings>;
+
+  // Scheduled Emails
+  getScheduledEmails(): Promise<ScheduledEmail[]>;
+  getPendingScheduledEmails(): Promise<ScheduledEmail[]>;
+  createScheduledEmail(email: InsertScheduledEmail): Promise<ScheduledEmail>;
+  updateScheduledEmail(id: string, updates: Partial<InsertScheduledEmail>): Promise<ScheduledEmail | undefined>;
+  deleteScheduledEmail(id: string): Promise<boolean>;
 }
 
 export class MemStorage implements IStorage {
@@ -51,6 +60,7 @@ export class MemStorage implements IStorage {
   private reminders: Map<string, Reminder> = new Map();
   private templates: Map<string, EmailTemplate> = new Map();
   private gmailSettings: GmailSettings | undefined;
+  private scheduledEmails: Map<string, ScheduledEmail> = new Map();
 
   constructor() {
     this.seedData();
@@ -249,6 +259,39 @@ Best regards,
     const id = this.gmailSettings?.id || randomUUID();
     this.gmailSettings = { ...settings, id, configured: settings.configured || false };
     return this.gmailSettings;
+  }
+
+  // Scheduled Emails
+  async getScheduledEmails(): Promise<ScheduledEmail[]> {
+    return Array.from(this.scheduledEmails.values()).sort(
+      (a, b) => new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime()
+    );
+  }
+
+  async getPendingScheduledEmails(): Promise<ScheduledEmail[]> {
+    const now = new Date();
+    return Array.from(this.scheduledEmails.values())
+      .filter((e) => e.status === "pending" && new Date(e.scheduledAt) <= now)
+      .sort((a, b) => new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime());
+  }
+
+  async createScheduledEmail(email: InsertScheduledEmail): Promise<ScheduledEmail> {
+    const id = randomUUID();
+    const newEmail: ScheduledEmail = { ...email, id, status: email.status || "pending" };
+    this.scheduledEmails.set(id, newEmail);
+    return newEmail;
+  }
+
+  async updateScheduledEmail(id: string, updates: Partial<InsertScheduledEmail>): Promise<ScheduledEmail | undefined> {
+    const email = this.scheduledEmails.get(id);
+    if (!email) return undefined;
+    const updated = { ...email, ...updates };
+    this.scheduledEmails.set(id, updated);
+    return updated;
+  }
+
+  async deleteScheduledEmail(id: string): Promise<boolean> {
+    return this.scheduledEmails.delete(id);
   }
 }
 

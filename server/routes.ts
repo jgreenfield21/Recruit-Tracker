@@ -2,7 +2,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import nodemailer from "nodemailer";
-import { insertCoachSchema, insertContactSchema, insertReminderSchema, insertEmailTemplateSchema, insertGmailSettingsSchema } from "@shared/schema";
+import { insertCoachSchema, insertContactSchema, insertReminderSchema, insertEmailTemplateSchema, insertGmailSettingsSchema, insertScheduledEmailSchema } from "@shared/schema";
 import { z } from "zod";
 
 export async function registerRoutes(
@@ -336,6 +336,129 @@ export async function registerRoutes(
       res.status(500).json({ error: error.message || "Failed to send emails" });
     }
   });
+
+  // Scheduled Emails
+  app.get("/api/scheduled-emails", async (req, res) => {
+    try {
+      const emails = await storage.getScheduledEmails();
+      res.json(emails);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch scheduled emails" });
+    }
+  });
+
+  app.post("/api/scheduled-emails", async (req, res) => {
+    try {
+      const { coachIds, subject, body, scheduledAt } = req.body;
+      
+      if (!Array.isArray(coachIds) || coachIds.length === 0) {
+        return res.status(400).json({ error: "No coaches selected" });
+      }
+      
+      const data = insertScheduledEmailSchema.parse({
+        coachIds: JSON.stringify(coachIds),
+        subject,
+        body,
+        scheduledAt,
+        status: "pending",
+        createdAt: new Date().toISOString(),
+      });
+      
+      const email = await storage.createScheduledEmail(data);
+      res.status(201).json(email);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: error.errors });
+      }
+      res.status(500).json({ error: "Failed to schedule email" });
+    }
+  });
+
+  app.delete("/api/scheduled-emails/:id", async (req, res) => {
+    try {
+      const deleted = await storage.deleteScheduledEmail(req.params.id);
+      if (!deleted) {
+        return res.status(404).json({ error: "Scheduled email not found" });
+      }
+      res.status(204).send();
+    } catch (error) {
+      res.status(500).json({ error: "Failed to delete scheduled email" });
+    }
+  });
+
+  // Background job to process scheduled emails (runs every minute)
+  const processScheduledEmails = async () => {
+    try {
+      const pendingEmails = await storage.getPendingScheduledEmails();
+      const settings = await storage.getGmailSettings();
+      
+      if (!settings || !settings.configured || pendingEmails.length === 0) {
+        return;
+      }
+
+      const transporter = nodemailer.createTransport({
+        service: "gmail",
+        auth: {
+          user: settings.email,
+          pass: settings.appPassword,
+        },
+      });
+
+      for (const scheduled of pendingEmails) {
+        const coachIds = JSON.parse(scheduled.coachIds) as string[];
+        let allSuccess = true;
+
+        for (const coachId of coachIds) {
+          const coach = await storage.getCoach(coachId);
+          if (!coach) continue;
+
+          const personalizedSubject = scheduled.subject
+            .replace(/\{\{coach_name\}\}/g, coach.name)
+            .replace(/\{\{salutation\}\}/g, coach.salutation || coach.name.split(" ")[0])
+            .replace(/\{\{school\}\}/g, coach.school)
+            .replace(/\{\{position\}\}/g, coach.position || "Coach");
+
+          const personalizedBody = scheduled.body
+            .replace(/\{\{coach_name\}\}/g, coach.name)
+            .replace(/\{\{salutation\}\}/g, coach.salutation || coach.name.split(" ")[0])
+            .replace(/\{\{school\}\}/g, coach.school)
+            .replace(/\{\{position\}\}/g, coach.position || "Coach");
+
+          try {
+            await transporter.sendMail({
+              from: settings.email,
+              to: coach.email,
+              subject: personalizedSubject,
+              text: personalizedBody,
+            });
+
+            await storage.createContact({
+              coachId: coach.id,
+              date: new Date().toISOString().split("T")[0],
+              method: "email",
+              subject: personalizedSubject,
+              notes: "Sent via RecruitTrack (scheduled)",
+            });
+
+            if (coach.status === "not_contacted") {
+              await storage.updateCoach(coach.id, { status: "awaiting_response" });
+            }
+          } catch {
+            allSuccess = false;
+          }
+        }
+
+        await storage.updateScheduledEmail(scheduled.id, {
+          status: allSuccess ? "sent" : "failed",
+        });
+      }
+    } catch (error) {
+      console.error("Error processing scheduled emails:", error);
+    }
+  };
+
+  // Run the scheduled email processor every minute
+  setInterval(processScheduledEmails, 60000);
 
   // CSV utility to escape cell values properly
   const escapeCsvCell = (value: string | null | undefined): string => {

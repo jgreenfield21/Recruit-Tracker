@@ -93,6 +93,22 @@ export const divisionOptions = [
   { value: "JUCO", label: "Junior College" },
 ];
 
+export const scheduledEmails = pgTable("scheduled_emails", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  coachIds: text("coach_ids").notNull(),
+  subject: text("subject").notNull(),
+  body: text("body").notNull(),
+  scheduledAt: text("scheduled_at").notNull(),
+  status: text("status").notNull().default("pending"),
+  createdAt: text("created_at").notNull(),
+});
+
+export const insertScheduledEmailSchema = createInsertSchema(scheduledEmails).omit({ id: true });
+export type InsertScheduledEmail = z.infer<typeof insertScheduledEmailSchema>;
+export type ScheduledEmail = typeof scheduledEmails.$inferSelect;
+
+export type ScheduledEmailStatus = "pending" | "sent" | "failed";
+
 export const users = pgTable("users", {
   id: varchar("id", { length: 36 }).primaryKey(),
   username: text("username").notNull().unique(),
