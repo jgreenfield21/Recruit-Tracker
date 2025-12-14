@@ -6,6 +6,7 @@ import {
   Bell,
   Settings,
   Mail,
+  BarChart3,
 } from "lucide-react";
 import {
   Sidebar,
@@ -26,6 +27,7 @@ const menuItems = [
   { title: "Send Emails", url: "/compose", icon: Mail },
   { title: "Templates", url: "/templates", icon: FileText },
   { title: "Reminders", url: "/reminders", icon: Bell },
+  { title: "Analytics", url: "/analytics", icon: BarChart3 },
   { title: "Settings", url: "/settings", icon: Settings },
 ];
 
