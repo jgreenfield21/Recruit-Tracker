@@ -1,16 +1,341 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
+import nodemailer from "nodemailer";
+import { insertCoachSchema, insertContactSchema, insertReminderSchema, insertEmailTemplateSchema, insertGmailSettingsSchema } from "@shared/schema";
+import { z } from "zod";
 
 export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
-  // put application routes here
-  // prefix all routes with /api
+  // Coaches
+  app.get("/api/coaches", async (req, res) => {
+    try {
+      const coaches = await storage.getCoaches();
+      res.json(coaches);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch coaches" });
+    }
+  });
 
-  // use storage to perform CRUD operations on the storage interface
-  // e.g. storage.insertUser(user) or storage.getUserByUsername(username)
+  app.get("/api/coaches/:id", async (req, res) => {
+    try {
+      const coach = await storage.getCoach(req.params.id);
+      if (!coach) {
+        return res.status(404).json({ error: "Coach not found" });
+      }
+      res.json(coach);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch coach" });
+    }
+  });
+
+  app.post("/api/coaches", async (req, res) => {
+    try {
+      const data = insertCoachSchema.parse(req.body);
+      const coach = await storage.createCoach(data);
+      res.status(201).json(coach);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: error.errors });
+      }
+      res.status(500).json({ error: "Failed to create coach" });
+    }
+  });
+
+  app.patch("/api/coaches/:id", async (req, res) => {
+    try {
+      const data = insertCoachSchema.partial().parse(req.body);
+      const coach = await storage.updateCoach(req.params.id, data);
+      if (!coach) {
+        return res.status(404).json({ error: "Coach not found" });
+      }
+      res.json(coach);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: error.errors });
+      }
+      res.status(500).json({ error: "Failed to update coach" });
+    }
+  });
+
+  app.delete("/api/coaches/:id", async (req, res) => {
+    try {
+      const deleted = await storage.deleteCoach(req.params.id);
+      if (!deleted) {
+        return res.status(404).json({ error: "Coach not found" });
+      }
+      res.status(204).send();
+    } catch (error) {
+      res.status(500).json({ error: "Failed to delete coach" });
+    }
+  });
+
+  // Contacts
+  app.get("/api/contacts", async (req, res) => {
+    try {
+      const contacts = await storage.getContacts();
+      res.json(contacts);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch contacts" });
+    }
+  });
+
+  app.post("/api/contacts", async (req, res) => {
+    try {
+      const data = insertContactSchema.parse(req.body);
+      const contact = await storage.createContact(data);
+      
+      // Update coach status to "contacted" if it was "not_contacted"
+      const coach = await storage.getCoach(data.coachId);
+      if (coach && coach.status === "not_contacted") {
+        await storage.updateCoach(data.coachId, { status: "contacted" });
+      }
+      
+      res.status(201).json(contact);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: error.errors });
+      }
+      res.status(500).json({ error: "Failed to create contact" });
+    }
+  });
+
+  // Reminders
+  app.get("/api/reminders", async (req, res) => {
+    try {
+      const reminders = await storage.getReminders();
+      res.json(reminders);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch reminders" });
+    }
+  });
+
+  app.post("/api/reminders", async (req, res) => {
+    try {
+      const data = insertReminderSchema.parse(req.body);
+      const reminder = await storage.createReminder(data);
+      res.status(201).json(reminder);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: error.errors });
+      }
+      res.status(500).json({ error: "Failed to create reminder" });
+    }
+  });
+
+  app.patch("/api/reminders/:id", async (req, res) => {
+    try {
+      const data = insertReminderSchema.partial().parse(req.body);
+      const reminder = await storage.updateReminder(req.params.id, data);
+      if (!reminder) {
+        return res.status(404).json({ error: "Reminder not found" });
+      }
+      res.json(reminder);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: error.errors });
+      }
+      res.status(500).json({ error: "Failed to update reminder" });
+    }
+  });
+
+  app.delete("/api/reminders/:id", async (req, res) => {
+    try {
+      const deleted = await storage.deleteReminder(req.params.id);
+      if (!deleted) {
+        return res.status(404).json({ error: "Reminder not found" });
+      }
+      res.status(204).send();
+    } catch (error) {
+      res.status(500).json({ error: "Failed to delete reminder" });
+    }
+  });
+
+  // Email Templates
+  app.get("/api/templates", async (req, res) => {
+    try {
+      const templates = await storage.getTemplates();
+      res.json(templates);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch templates" });
+    }
+  });
+
+  app.post("/api/templates", async (req, res) => {
+    try {
+      const data = insertEmailTemplateSchema.parse(req.body);
+      const template = await storage.createTemplate(data);
+      res.status(201).json(template);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: error.errors });
+      }
+      res.status(500).json({ error: "Failed to create template" });
+    }
+  });
+
+  app.patch("/api/templates/:id", async (req, res) => {
+    try {
+      const data = insertEmailTemplateSchema.partial().parse(req.body);
+      const template = await storage.updateTemplate(req.params.id, data);
+      if (!template) {
+        return res.status(404).json({ error: "Template not found" });
+      }
+      res.json(template);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: error.errors });
+      }
+      res.status(500).json({ error: "Failed to update template" });
+    }
+  });
+
+  app.delete("/api/templates/:id", async (req, res) => {
+    try {
+      const deleted = await storage.deleteTemplate(req.params.id);
+      if (!deleted) {
+        return res.status(404).json({ error: "Template not found" });
+      }
+      res.status(204).send();
+    } catch (error) {
+      res.status(500).json({ error: "Failed to delete template" });
+    }
+  });
+
+  // Gmail Settings
+  app.get("/api/gmail-settings", async (req, res) => {
+    try {
+      const settings = await storage.getGmailSettings();
+      if (!settings) {
+        return res.json({ configured: false });
+      }
+      // Don't send the password back
+      res.json({ id: settings.id, email: settings.email, configured: settings.configured });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch Gmail settings" });
+    }
+  });
+
+  app.post("/api/gmail-settings", async (req, res) => {
+    try {
+      const data = insertGmailSettingsSchema.parse(req.body);
+      const settings = await storage.saveGmailSettings(data);
+      res.json({ id: settings.id, email: settings.email, configured: settings.configured });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: error.errors });
+      }
+      res.status(500).json({ error: "Failed to save Gmail settings" });
+    }
+  });
+
+  app.post("/api/test-gmail", async (req, res) => {
+    try {
+      const settings = await storage.getGmailSettings();
+      if (!settings || !settings.configured) {
+        return res.status(400).json({ error: "Gmail not configured" });
+      }
+
+      const transporter = nodemailer.createTransport({
+        service: "gmail",
+        auth: {
+          user: settings.email,
+          pass: settings.appPassword,
+        },
+      });
+
+      await transporter.verify();
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(400).json({ error: error.message || "Failed to connect to Gmail" });
+    }
+  });
+
+  // Send Emails
+  app.post("/api/send-emails", async (req, res) => {
+    try {
+      const { coachIds, subject, body } = req.body;
+
+      if (!Array.isArray(coachIds) || coachIds.length === 0) {
+        return res.status(400).json({ error: "No coaches selected" });
+      }
+
+      const settings = await storage.getGmailSettings();
+      if (!settings || !settings.configured) {
+        return res.status(400).json({ error: "Gmail not configured" });
+      }
+
+      const transporter = nodemailer.createTransport({
+        service: "gmail",
+        auth: {
+          user: settings.email,
+          pass: settings.appPassword,
+        },
+      });
+
+      const results = [];
+      for (const coachId of coachIds) {
+        const coach = await storage.getCoach(coachId);
+        if (!coach) continue;
+
+        // Apply merge fields
+        const personalizedSubject = subject
+          .replace(/\{\{coach_name\}\}/g, coach.name)
+          .replace(/\{\{salutation\}\}/g, coach.salutation || coach.name.split(" ")[0])
+          .replace(/\{\{school\}\}/g, coach.school)
+          .replace(/\{\{position\}\}/g, coach.position || "Coach");
+
+        const personalizedBody = body
+          .replace(/\{\{coach_name\}\}/g, coach.name)
+          .replace(/\{\{salutation\}\}/g, coach.salutation || coach.name.split(" ")[0])
+          .replace(/\{\{school\}\}/g, coach.school)
+          .replace(/\{\{position\}\}/g, coach.position || "Coach");
+
+        try {
+          await transporter.sendMail({
+            from: settings.email,
+            to: coach.email,
+            subject: personalizedSubject,
+            text: personalizedBody,
+          });
+
+          // Log the contact
+          await storage.createContact({
+            coachId: coach.id,
+            date: new Date().toISOString().split("T")[0],
+            method: "email",
+            subject: personalizedSubject,
+            notes: "Sent via RecruitTrack",
+          });
+
+          // Update coach status
+          if (coach.status === "not_contacted") {
+            await storage.updateCoach(coach.id, { status: "awaiting_response" });
+          }
+
+          results.push({ coachId: coach.id, success: true });
+        } catch (error: any) {
+          results.push({ coachId: coach.id, success: false, error: error.message });
+        }
+      }
+
+      const successCount = results.filter((r) => r.success).length;
+      const failCount = results.filter((r) => !r.success).length;
+
+      if (failCount === results.length) {
+        return res.status(500).json({ error: "Failed to send all emails", results });
+      }
+
+      res.json({ 
+        message: `Successfully sent ${successCount} email(s)${failCount > 0 ? `, ${failCount} failed` : ""}`,
+        results 
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message || "Failed to send emails" });
+    }
+  });
 
   return httpServer;
 }
