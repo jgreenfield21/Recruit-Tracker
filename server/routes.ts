@@ -337,5 +337,74 @@ export async function registerRoutes(
     }
   });
 
+  // CSV utility to escape cell values properly
+  const escapeCsvCell = (value: string | null | undefined): string => {
+    const str = (value ?? "").toString();
+    return str.replace(/"/g, '""');
+  };
+
+  // Export CSV endpoints
+  app.get("/api/export/coaches", async (req, res) => {
+    try {
+      const coaches = await storage.getCoaches();
+      
+      const headers = ["Name", "Email", "Phone", "School", "Position", "Division", "Status", "Notes"];
+      const rows = coaches.map(coach => [
+        escapeCsvCell(coach.name),
+        escapeCsvCell(coach.email),
+        escapeCsvCell(coach.phone),
+        escapeCsvCell(coach.school),
+        escapeCsvCell(coach.position),
+        escapeCsvCell(coach.division),
+        escapeCsvCell(coach.status),
+        escapeCsvCell(coach.notes)
+      ]);
+      
+      const csvContent = [
+        headers.join(","),
+        ...rows.map(row => row.map(cell => `"${cell}"`).join(","))
+      ].join("\n");
+      
+      res.setHeader("Content-Type", "text/csv");
+      res.setHeader("Content-Disposition", "attachment; filename=coaches_export.csv");
+      res.send(csvContent);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to export coaches" });
+    }
+  });
+
+  app.get("/api/export/contacts", async (req, res) => {
+    try {
+      const contacts = await storage.getContacts();
+      const coaches = await storage.getCoaches();
+      
+      const coachMap = new Map(coaches.map(c => [c.id, c]));
+      
+      const headers = ["Date", "Coach Name", "School", "Method", "Subject", "Notes"];
+      const rows = contacts.map(contact => {
+        const coach = coachMap.get(contact.coachId);
+        return [
+          escapeCsvCell(contact.date),
+          escapeCsvCell(coach?.name || "Unknown"),
+          escapeCsvCell(coach?.school),
+          escapeCsvCell(contact.method),
+          escapeCsvCell(contact.subject),
+          escapeCsvCell(contact.notes)
+        ];
+      });
+      
+      const csvContent = [
+        headers.join(","),
+        ...rows.map(row => row.map(cell => `"${cell}"`).join(","))
+      ].join("\n");
+      
+      res.setHeader("Content-Type", "text/csv");
+      res.setHeader("Content-Disposition", "attachment; filename=contacts_export.csv");
+      res.send(csvContent);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to export contacts" });
+    }
+  });
+
   return httpServer;
 }

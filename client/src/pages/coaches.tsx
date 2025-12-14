@@ -13,6 +13,7 @@ import {
   Trash2,
   Users,
   Filter,
+  Download,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -114,13 +115,38 @@ export default function Coaches() {
             Manage your college coach contacts
           </p>
         </div>
-        <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
-          <DialogTrigger asChild>
-            <Button data-testid="button-add-new-coach">
-              <Plus className="h-4 w-4 mr-2" />
-              Add Coach
-            </Button>
-          </DialogTrigger>
+        <div className="flex gap-2 flex-wrap">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" data-testid="button-export">
+                <Download className="h-4 w-4 mr-2" />
+                Export
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem
+                onClick={() => window.open("/api/export/coaches", "_blank")}
+                data-testid="button-export-coaches"
+              >
+                <Download className="h-4 w-4 mr-2" />
+                Export Coaches (CSV)
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => window.open("/api/export/contacts", "_blank")}
+                data-testid="button-export-contacts"
+              >
+                <Download className="h-4 w-4 mr-2" />
+                Export Contact History (CSV)
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
+            <DialogTrigger asChild>
+              <Button data-testid="button-add-new-coach">
+                <Plus className="h-4 w-4 mr-2" />
+                Add Coach
+              </Button>
+            </DialogTrigger>
           <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>Add New Coach</DialogTitle>
@@ -130,7 +156,8 @@ export default function Coaches() {
             </DialogHeader>
             <CoachForm onSuccess={() => setIsAddDialogOpen(false)} />
           </DialogContent>
-        </Dialog>
+          </Dialog>
+        </div>
       </div>
 
       <Card>
