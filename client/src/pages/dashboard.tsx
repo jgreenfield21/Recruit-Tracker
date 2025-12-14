@@ -1,6 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { format, isAfter, isBefore, startOfToday, addDays, parseISO } from "date-fns";
+import { useEffect, useRef } from "react";
+import { useNotifications } from "@/hooks/use-notifications";
 import {
   Users,
   Bell,
@@ -26,6 +28,9 @@ interface DashboardStats {
 }
 
 export default function Dashboard() {
+  const { permission, showNotification } = useNotifications();
+  const notifiedRef = useRef(false);
+
   const { data: coaches, isLoading: loadingCoaches } = useQuery<Coach[]>({
     queryKey: ["/api/coaches"],
   });
@@ -40,11 +45,26 @@ export default function Dashboard() {
 
   const isLoading = loadingCoaches || loadingReminders || loadingContacts;
 
+  const today = startOfToday();
+
+  const overdueReminders = reminders?.filter(
+    (r) => !r.completed && isBefore(parseISO(r.dueDate), today)
+  ) || [];
+
+  useEffect(() => {
+    if (permission === "granted" && overdueReminders.length > 0 && !notifiedRef.current) {
+      notifiedRef.current = true;
+      showNotification("RecruitTrack - Overdue Reminders", {
+        body: `You have ${overdueReminders.length} overdue reminder${overdueReminders.length > 1 ? "s" : ""} that need attention.`,
+        tag: "overdue-reminders",
+      });
+    }
+  }, [permission, overdueReminders.length, showNotification]);
+
   if (isLoading) {
     return <LoadingState message="Loading dashboard..." />;
   }
 
-  const today = startOfToday();
   const thisMonth = new Date().getMonth();
   const thisYear = new Date().getFullYear();
 
@@ -57,10 +77,6 @@ export default function Dashboard() {
     }).length || 0,
     needsFollowUp: coaches?.filter((c) => c.status === "follow_up_needed").length || 0,
   };
-
-  const overdueReminders = reminders?.filter(
-    (r) => !r.completed && isBefore(parseISO(r.dueDate), today)
-  ) || [];
 
   const upcomingReminders = reminders?.filter(
     (r) => !r.completed && 

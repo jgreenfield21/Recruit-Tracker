@@ -10,6 +10,8 @@ import {
   Eye,
   EyeOff,
   ExternalLink,
+  Bell,
+  BellOff,
 } from "lucide-react";
 import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -30,6 +32,7 @@ import { Separator } from "@/components/ui/separator";
 import { LoadingState } from "@/components/loading-state";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { useNotifications } from "@/hooks/use-notifications";
 import type { GmailSettings } from "@shared/schema";
 
 const formSchema = z.object({
@@ -42,6 +45,7 @@ type FormData = z.infer<typeof formSchema>;
 export default function Settings() {
   const [showPassword, setShowPassword] = useState(false);
   const { toast } = useToast();
+  const { permission, isSupported, requestPermission, showNotification } = useNotifications();
 
   const { data: settings, isLoading } = useQuery<GmailSettings>({
     queryKey: ["/api/gmail-settings"],
@@ -243,6 +247,88 @@ export default function Settings() {
               </div>
             </form>
           </Form>
+        </CardContent>
+      </Card>
+
+      <Card data-testid="card-notification-settings">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Bell className="h-5 w-5" />
+            Browser Notifications
+          </CardTitle>
+          <CardDescription>
+            Get notified about upcoming and overdue reminders
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {!isSupported ? (
+            <Alert>
+              <BellOff className="h-4 w-4" />
+              <AlertTitle>Not Supported</AlertTitle>
+              <AlertDescription>
+                Your browser does not support notifications.
+              </AlertDescription>
+            </Alert>
+          ) : permission === "granted" ? (
+            <Alert data-testid="alert-notifications-enabled">
+              <Check className="h-4 w-4" />
+              <AlertTitle>Notifications Enabled</AlertTitle>
+              <AlertDescription>
+                You will receive browser notifications for reminder alerts.
+              </AlertDescription>
+            </Alert>
+          ) : permission === "denied" ? (
+            <Alert variant="destructive" data-testid="alert-notifications-blocked">
+              <BellOff className="h-4 w-4" />
+              <AlertTitle>Notifications Blocked</AlertTitle>
+              <AlertDescription>
+                Notifications are blocked. Please enable them in your browser settings.
+              </AlertDescription>
+            </Alert>
+          ) : (
+            <Alert data-testid="alert-notifications-prompt">
+              <Bell className="h-4 w-4" />
+              <AlertTitle>Enable Notifications</AlertTitle>
+              <AlertDescription>
+                Allow notifications to get reminded about your follow-ups.
+              </AlertDescription>
+            </Alert>
+          )}
+
+          <div className="flex gap-2 flex-wrap">
+            {isSupported && permission !== "granted" && permission !== "denied" && (
+              <Button
+                onClick={async () => {
+                  const granted = await requestPermission();
+                  if (granted) {
+                    toast({ title: "Notifications enabled!" });
+                    showNotification("RecruitTrack", {
+                      body: "You will now receive reminder notifications.",
+                    });
+                  }
+                }}
+                data-testid="button-enable-notifications"
+              >
+                <Bell className="h-4 w-4 mr-2" />
+                Enable Notifications
+              </Button>
+            )}
+            {isSupported && permission === "granted" && (
+              <Button
+                variant="outline"
+                onClick={() => {
+                  showNotification("Test Notification", {
+                    body: "This is a test reminder notification from RecruitTrack.",
+                  });
+                  toast({ title: "Test notification sent!" });
+                }}
+                data-testid="button-test-notification"
+              >
+                <Bell className="h-4 w-4 mr-2" />
+                Test Notification
+              </Button>
+            )}
+          </div>
         </CardContent>
       </Card>
 
