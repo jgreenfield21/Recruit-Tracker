@@ -8,6 +8,8 @@ import memoize from "memoizee";
 import connectPg from "connect-pg-simple";
 import { storage } from "./storage";
 
+const isMockAuth = process.env.MOCK_AUTH === "true";
+
 const getOidcConfig = memoize(
   async () => {
     return await client.discovery(
@@ -63,6 +65,40 @@ async function upsertUser(claims: any) {
 export async function setupAuth(app: Express) {
   app.set("trust proxy", 1);
   app.use(getSession());
+
+  if (isMockAuth) {
+    const mockUser = {
+      claims: {
+        sub: "local-dev-user",
+        email: "dev@localhost",
+        first_name: "Local",
+        last_name: "Developer",
+      },
+      expires_at: Math.floor(Date.now() / 1000) + 86400 * 365,
+    };
+
+    await storage.upsertUser({
+      id: "local-dev-user",
+      email: "dev@localhost",
+      firstName: "Local",
+      lastName: "Developer",
+      profileImageUrl: null,
+    });
+
+    app.use((req, _res, next) => {
+      req.user = mockUser;
+      (req as any).isAuthenticated = () => true;
+      next();
+    });
+
+    app.get("/api/login", (_req, res) => res.redirect("/"));
+    app.get("/api/callback", (_req, res) => res.redirect("/"));
+    app.get("/api/logout", (_req, res) => res.redirect("/"));
+
+    console.log("Mock auth enabled - automatically logged in as dev@localhost");
+    return;
+  }
+
   app.use(passport.initialize());
   app.use(passport.session());
 
@@ -129,6 +165,10 @@ export async function setupAuth(app: Express) {
 }
 
 export const isAuthenticated: RequestHandler = async (req, res, next) => {
+  if (isMockAuth) {
+    return next();
+  }
+
   const user = req.user as any;
 
   if (!req.isAuthenticated() || !user.expires_at) {
