@@ -36,7 +36,8 @@ Preferred communication style: Simple, everyday language.
 - **Contacts**: Communication log entries linked to coaches
 - **Reminders**: Follow-up tasks with due dates and completion status
 - **Email Templates**: Reusable email templates with merge field support ({{coach_name}}, {{school}}, etc.)
-- **Gmail Settings**: SMTP configuration for email sending
+- **Gmail Settings**: iCloud Mail SMTP configuration (smtp.mail.me.com:587) for email sending
+- **Recruiting Profiles**: User's profile links (NCSA, Hudl, MaxPreps, etc.) for quick insertion into emails
 
 ### Project Structure
 ```
@@ -61,8 +62,9 @@ shared/           # Shared types and schemas
 - **Drizzle Kit**: Database migrations via `npm run db:push`
 
 ### Email Service
-- **Gmail SMTP**: Configured through app passwords stored in GmailSettings
+- **iCloud Mail SMTP**: Configured through app-specific passwords (smtp.mail.me.com:587)
 - **Nodemailer**: Node.js email client for sending through SMTP
+- **File Attachments**: Base64-encoded files (PDF, Word, images, videos up to 10MB) sent with emails
 
 ### UI Dependencies
 - **Radix UI**: Accessible component primitives (dialog, dropdown, tabs, etc.)
