@@ -132,3 +132,25 @@ export const users = pgTable("users", {
 
 export type UpsertUser = typeof users.$inferInsert;
 export type User = typeof users.$inferSelect;
+
+export const recruitingProfiles = pgTable("recruiting_profiles", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  name: text("name").notNull(),
+  url: text("url").notNull(),
+  icon: text("icon"),
+});
+
+export const insertRecruitingProfileSchema = createInsertSchema(recruitingProfiles).omit({ id: true });
+export type InsertRecruitingProfile = z.infer<typeof insertRecruitingProfileSchema>;
+export type RecruitingProfile = typeof recruitingProfiles.$inferSelect;
+
+export const profilePlatformOptions = [
+  { value: "ncsa", label: "NCSA", icon: "globe" },
+  { value: "sportsrecruits", label: "SportsRecruits", icon: "globe" },
+  { value: "maxpreps", label: "MaxPreps", icon: "globe" },
+  { value: "hudl", label: "Hudl", icon: "video" },
+  { value: "youtube", label: "YouTube", icon: "video" },
+  { value: "twitter", label: "Twitter/X", icon: "twitter" },
+  { value: "instagram", label: "Instagram", icon: "instagram" },
+  { value: "other", label: "Other", icon: "link" },
+];

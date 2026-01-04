@@ -13,6 +13,8 @@ import {
   type InsertScheduledEmail,
   type User,
   type UpsertUser,
+  type RecruitingProfile,
+  type InsertRecruitingProfile,
   users,
 } from "@shared/schema";
 import { randomUUID } from "crypto";
@@ -61,6 +63,12 @@ export interface IStorage {
   createScheduledEmail(email: InsertScheduledEmail): Promise<ScheduledEmail>;
   updateScheduledEmail(id: string, updates: Partial<InsertScheduledEmail>): Promise<ScheduledEmail | undefined>;
   deleteScheduledEmail(id: string): Promise<boolean>;
+
+  // Recruiting Profiles
+  getRecruitingProfiles(): Promise<RecruitingProfile[]>;
+  createRecruitingProfile(profile: InsertRecruitingProfile): Promise<RecruitingProfile>;
+  updateRecruitingProfile(id: string, profile: Partial<InsertRecruitingProfile>): Promise<RecruitingProfile | undefined>;
+  deleteRecruitingProfile(id: string): Promise<boolean>;
 }
 
 export class MemStorage implements IStorage {
@@ -70,6 +78,7 @@ export class MemStorage implements IStorage {
   private templates: Map<string, EmailTemplate> = new Map();
   private gmailSettings: GmailSettings | undefined;
   private scheduledEmails: Map<string, ScheduledEmail> = new Map();
+  private recruitingProfiles: Map<string, RecruitingProfile> = new Map();
 
   constructor() {
     this.seedData();
@@ -321,6 +330,30 @@ Best regards,
 
   async deleteScheduledEmail(id: string): Promise<boolean> {
     return this.scheduledEmails.delete(id);
+  }
+
+  // Recruiting Profiles
+  async getRecruitingProfiles(): Promise<RecruitingProfile[]> {
+    return Array.from(this.recruitingProfiles.values());
+  }
+
+  async createRecruitingProfile(profile: InsertRecruitingProfile): Promise<RecruitingProfile> {
+    const id = randomUUID();
+    const newProfile: RecruitingProfile = { ...profile, id };
+    this.recruitingProfiles.set(id, newProfile);
+    return newProfile;
+  }
+
+  async updateRecruitingProfile(id: string, updates: Partial<InsertRecruitingProfile>): Promise<RecruitingProfile | undefined> {
+    const profile = this.recruitingProfiles.get(id);
+    if (!profile) return undefined;
+    const updated = { ...profile, ...updates };
+    this.recruitingProfiles.set(id, updated);
+    return updated;
+  }
+
+  async deleteRecruitingProfile(id: string): Promise<boolean> {
+    return this.recruitingProfiles.delete(id);
   }
 }
 

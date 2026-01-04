@@ -12,6 +12,11 @@ import {
   ExternalLink,
   Bell,
   BellOff,
+  Link,
+  Plus,
+  Trash2,
+  Globe,
+  Video,
 } from "lucide-react";
 import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -33,23 +38,103 @@ import { LoadingState } from "@/components/loading-state";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useNotifications } from "@/hooks/use-notifications";
-import type { GmailSettings } from "@shared/schema";
+import type { GmailSettings, RecruitingProfile } from "@shared/schema";
+import { profilePlatformOptions } from "@shared/schema";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 const formSchema = z.object({
   email: z.string().email("Please enter a valid iCloud email address"),
   appPassword: z.string().min(1, "App password is required"),
 });
 
+const profileFormSchema = z.object({
+  name: z.string().min(1, "Name is required"),
+  url: z.string().url("Please enter a valid URL"),
+  icon: z.string().optional(),
+});
+
 type FormData = z.infer<typeof formSchema>;
+type ProfileFormData = z.infer<typeof profileFormSchema>;
 
 export default function Settings() {
   const [showPassword, setShowPassword] = useState(false);
+  const [profileDialogOpen, setProfileDialogOpen] = useState(false);
+  const [newProfileName, setNewProfileName] = useState("");
+  const [newProfileUrl, setNewProfileUrl] = useState("");
+  const [newProfileType, setNewProfileType] = useState("other");
   const { toast } = useToast();
   const { permission, isSupported, requestPermission, showNotification } = useNotifications();
 
   const { data: settings, isLoading } = useQuery<GmailSettings>({
     queryKey: ["/api/gmail-settings"],
   });
+
+  const { data: profiles, isLoading: loadingProfiles } = useQuery<RecruitingProfile[]>({
+    queryKey: ["/api/recruiting-profiles"],
+  });
+
+  const createProfileMutation = useMutation({
+    mutationFn: (data: ProfileFormData) =>
+      apiRequest("POST", "/api/recruiting-profiles", data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/recruiting-profiles"] });
+      toast({ title: "Profile link added!" });
+      setProfileDialogOpen(false);
+      setNewProfileName("");
+      setNewProfileUrl("");
+      setNewProfileType("other");
+    },
+    onError: () => {
+      toast({ title: "Failed to add profile link", variant: "destructive" });
+    },
+  });
+
+  const deleteProfileMutation = useMutation({
+    mutationFn: (id: string) =>
+      apiRequest("DELETE", `/api/recruiting-profiles/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/recruiting-profiles"] });
+      toast({ title: "Profile link removed" });
+    },
+    onError: () => {
+      toast({ title: "Failed to remove profile link", variant: "destructive" });
+    },
+  });
+
+  const handleAddProfile = () => {
+    if (!newProfileName.trim() || !newProfileUrl.trim()) {
+      toast({ title: "Please fill in all fields", variant: "destructive" });
+      return;
+    }
+    createProfileMutation.mutate({
+      name: newProfileName,
+      url: newProfileUrl,
+      icon: newProfileType,
+    });
+  };
+
+  const getProfileIcon = (icon: string | null | undefined) => {
+    switch (icon) {
+      case "video":
+        return <Video className="h-4 w-4" />;
+      default:
+        return <Globe className="h-4 w-4" />;
+    }
+  };
 
   const form = useForm<FormData>({
     resolver: zodResolver(formSchema),
@@ -329,6 +414,130 @@ export default function Settings() {
               </Button>
             )}
           </div>
+        </CardContent>
+      </Card>
+
+      <Card data-testid="card-recruiting-profiles">
+        <CardHeader className="flex flex-row items-center justify-between gap-2">
+          <div>
+            <CardTitle className="flex items-center gap-2">
+              <Link className="h-5 w-5" />
+              Recruiting Profile Links
+            </CardTitle>
+            <CardDescription>
+              Add links to your recruiting profiles to quickly insert them in emails
+            </CardDescription>
+          </div>
+          <Dialog open={profileDialogOpen} onOpenChange={setProfileDialogOpen}>
+            <DialogTrigger asChild>
+              <Button size="sm" data-testid="button-add-profile">
+                <Plus className="h-4 w-4 mr-1" />
+                Add Link
+              </Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Add Profile Link</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4 pt-4">
+                <div className="space-y-2">
+                  <Label htmlFor="profile-type">Platform</Label>
+                  <Select
+                    value={newProfileType}
+                    onValueChange={setNewProfileType}
+                  >
+                    <SelectTrigger data-testid="select-profile-type">
+                      <SelectValue placeholder="Select platform..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {profilePlatformOptions.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="profile-name">Display Name</Label>
+                  <Input
+                    id="profile-name"
+                    placeholder="e.g., My NCSA Profile"
+                    value={newProfileName}
+                    onChange={(e) => setNewProfileName(e.target.value)}
+                    data-testid="input-profile-name"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="profile-url">URL</Label>
+                  <Input
+                    id="profile-url"
+                    placeholder="https://..."
+                    value={newProfileUrl}
+                    onChange={(e) => setNewProfileUrl(e.target.value)}
+                    data-testid="input-profile-url"
+                  />
+                </div>
+                <Button
+                  className="w-full"
+                  onClick={handleAddProfile}
+                  disabled={createProfileMutation.isPending}
+                  data-testid="button-save-profile"
+                >
+                  {createProfileMutation.isPending && (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  )}
+                  Add Profile Link
+                </Button>
+              </div>
+            </DialogContent>
+          </Dialog>
+        </CardHeader>
+        <CardContent>
+          {loadingProfiles ? (
+            <div className="text-center py-4 text-muted-foreground">Loading...</div>
+          ) : !profiles || profiles.length === 0 ? (
+            <div className="text-center py-4 text-muted-foreground">
+              No profile links added yet. Add your NCSA, Hudl, or other recruiting profile URLs.
+            </div>
+          ) : (
+            <ScrollArea className="max-h-[200px]">
+              <div className="space-y-2">
+                {profiles.map((profile) => (
+                  <div
+                    key={profile.id}
+                    className="flex items-center justify-between gap-2 p-3 rounded-md bg-muted/50"
+                    data-testid={`profile-item-${profile.id}`}
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      {getProfileIcon(profile.icon)}
+                      <div className="min-w-0">
+                        <div className="font-medium text-sm truncate">{profile.name}</div>
+                        <a
+                          href={profile.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-xs text-muted-foreground truncate hover:underline flex items-center gap-1"
+                        >
+                          {profile.url.length > 40 ? profile.url.slice(0, 40) + "..." : profile.url}
+                          <ExternalLink className="h-3 w-3 flex-shrink-0" />
+                        </a>
+                      </div>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => deleteProfileMutation.mutate(profile.id)}
+                      disabled={deleteProfileMutation.isPending}
+                      data-testid={`button-delete-profile-${profile.id}`}
+                    >
+                      <Trash2 className="h-4 w-4 text-muted-foreground" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            </ScrollArea>
+          )}
         </CardContent>
       </Card>
 

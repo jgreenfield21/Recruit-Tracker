@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { format, parseISO } from "date-fns";
 import {
@@ -38,7 +38,19 @@ import { EmptyState } from "@/components/empty-state";
 import { LoadingState } from "@/components/loading-state";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import type { Coach, EmailTemplate, GmailSettings, ScheduledEmail } from "@shared/schema";
+import type { Coach, EmailTemplate, GmailSettings, ScheduledEmail, RecruitingProfile } from "@shared/schema";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { Link, Globe, Video, Paperclip, X as XIcon, File } from "lucide-react";
+
+interface AttachmentFile {
+  name: string;
+  size: number;
+  file: File;
+}
 
 export default function Compose() {
   const [selectedCoaches, setSelectedCoaches] = useState<Set<string>>(new Set());
@@ -48,7 +60,40 @@ export default function Compose() {
   const [previewCoachId, setPreviewCoachId] = useState<string | null>(null);
   const [scheduledDate, setScheduledDate] = useState("");
   const [scheduledTime, setScheduledTime] = useState("");
+  const [attachments, setAttachments] = useState<AttachmentFile[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
+
+  const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = event.target.files;
+    if (!files) return;
+    
+    const newAttachments: AttachmentFile[] = [];
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      if (file.size > 10 * 1024 * 1024) {
+        toast({ title: `File ${file.name} is too large (max 10MB)`, variant: "destructive" });
+        continue;
+      }
+      newAttachments.push({
+        name: file.name,
+        size: file.size,
+        file: file,
+      });
+    }
+    setAttachments((prev) => [...prev, ...newAttachments]);
+    event.target.value = "";
+  };
+
+  const removeAttachment = (index: number) => {
+    setAttachments((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const formatFileSize = (bytes: number) => {
+    if (bytes < 1024) return bytes + " B";
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
+    return (bytes / (1024 * 1024)).toFixed(1) + " MB";
+  };
 
   const { data: coaches, isLoading: loadingCoaches } = useQuery<Coach[]>({
     queryKey: ["/api/coaches"],
@@ -66,8 +111,26 @@ export default function Compose() {
     queryKey: ["/api/scheduled-emails"],
   });
 
+  const { data: profiles } = useQuery<RecruitingProfile[]>({
+    queryKey: ["/api/recruiting-profiles"],
+  });
+
+  const insertProfileLink = (profile: RecruitingProfile) => {
+    const linkText = `${profile.name}: ${profile.url}`;
+    setBody((prev) => prev + (prev ? "\n" : "") + linkText);
+  };
+
+  const getProfileIcon = (icon: string | null | undefined) => {
+    switch (icon) {
+      case "video":
+        return <Video className="h-4 w-4" />;
+      default:
+        return <Globe className="h-4 w-4" />;
+    }
+  };
+
   const sendMutation = useMutation({
-    mutationFn: (data: { coachIds: string[]; subject: string; body: string }) =>
+    mutationFn: (data: { coachIds: string[]; subject: string; body: string; attachments?: { filename: string; content: string }[] }) =>
       apiRequest("POST", "/api/send-emails", data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/contacts"] });
@@ -118,6 +181,7 @@ export default function Compose() {
     setSelectedTemplateId("");
     setScheduledDate("");
     setScheduledTime("");
+    setAttachments([]);
   };
 
   const isLoading = loadingCoaches || loadingTemplates || loadingSettings || loadingScheduled;
@@ -176,7 +240,16 @@ export default function Compose() {
     return applyMergeFields(body, previewCoach);
   }, [body, previewCoach]);
 
-  const handleSend = () => {
+  const fileToBase64 = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = (error) => reject(error);
+    });
+  };
+
+  const handleSend = async () => {
     if (selectedCoaches.size === 0) {
       toast({ title: "Please select at least one coach", variant: "destructive" });
       return;
@@ -185,10 +258,19 @@ export default function Compose() {
       toast({ title: "Please fill in subject and body", variant: "destructive" });
       return;
     }
+    
+    const attachmentData = await Promise.all(
+      attachments.map(async (a) => ({
+        filename: a.name,
+        content: await fileToBase64(a.file),
+      }))
+    );
+    
     sendMutation.mutate({
       coachIds: Array.from(selectedCoaches),
       subject,
       body,
+      attachments: attachmentData,
     });
   };
 
@@ -361,7 +443,39 @@ export default function Compose() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="body">Message *</Label>
+                <div className="flex items-center justify-between gap-2">
+                  <Label htmlFor="body">Message *</Label>
+                  {profiles && profiles.length > 0 && (
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <Button variant="outline" size="sm" data-testid="button-insert-link">
+                          <Link className="h-4 w-4 mr-1" />
+                          Insert Profile Link
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-64" align="end">
+                        <div className="space-y-2">
+                          <p className="text-sm font-medium">Insert a profile link</p>
+                          <div className="space-y-1">
+                            {profiles.map((profile) => (
+                              <Button
+                                key={profile.id}
+                                variant="ghost"
+                                size="sm"
+                                className="w-full justify-start"
+                                onClick={() => insertProfileLink(profile)}
+                                data-testid={`button-insert-profile-${profile.id}`}
+                              >
+                                {getProfileIcon(profile.icon)}
+                                <span className="ml-2 truncate">{profile.name}</span>
+                              </Button>
+                            ))}
+                          </div>
+                        </div>
+                      </PopoverContent>
+                    </Popover>
+                  )}
+                </div>
                 <Textarea
                   id="body"
                   placeholder="Dear {{salutation}},
@@ -375,6 +489,62 @@ I am reaching out to introduce myself..."
                 />
                 <p className="text-xs text-muted-foreground">
                   Use {"{{coach_name}}"}, {"{{salutation}}"}, {"{{school}}"}, {"{{position}}"} to personalize
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <Label>Attachments</Label>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    multiple
+                    className="hidden"
+                    onChange={handleFileSelect}
+                    accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.mp4,.mov"
+                    data-testid="input-file-upload"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => fileInputRef.current?.click()}
+                    data-testid="button-add-attachment"
+                  >
+                    <Paperclip className="h-4 w-4 mr-1" />
+                    Add File
+                  </Button>
+                </div>
+                {attachments.length > 0 && (
+                  <div className="space-y-2">
+                    {attachments.map((attachment, index) => (
+                      <div
+                        key={index}
+                        className="flex items-center justify-between gap-2 p-2 rounded-md bg-muted/50"
+                        data-testid={`attachment-item-${index}`}
+                      >
+                        <div className="flex items-center gap-2 min-w-0">
+                          <File className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
+                          <span className="text-sm truncate">{attachment.name}</span>
+                          <span className="text-xs text-muted-foreground flex-shrink-0">
+                            ({formatFileSize(attachment.size)})
+                          </span>
+                        </div>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => removeAttachment(index)}
+                          data-testid={`button-remove-attachment-${index}`}
+                        >
+                          <XIcon className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <p className="text-xs text-muted-foreground">
+                  Max 10MB per file. Supported: PDF, Word, images, videos
                 </p>
               </div>
 

@@ -2,7 +2,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import nodemailer from "nodemailer";
-import { insertCoachSchema, insertContactSchema, insertReminderSchema, insertEmailTemplateSchema, insertGmailSettingsSchema, insertScheduledEmailSchema } from "@shared/schema";
+import { insertCoachSchema, insertContactSchema, insertReminderSchema, insertEmailTemplateSchema, insertGmailSettingsSchema, insertScheduledEmailSchema, insertRecruitingProfileSchema } from "@shared/schema";
 import { z } from "zod";
 import { setupAuth, isAuthenticated } from "./replitAuth";
 
@@ -270,7 +270,7 @@ export async function registerRoutes(
   // Send Emails
   app.post("/api/send-emails", isAuthenticated, async (req, res) => {
     try {
-      const { coachIds, subject, body } = req.body;
+      const { coachIds, subject, body, attachments } = req.body;
 
       if (!Array.isArray(coachIds) || coachIds.length === 0) {
         return res.status(400).json({ error: "No coaches selected" });
@@ -289,6 +289,24 @@ export async function registerRoutes(
           user: settings.email,
           pass: settings.appPassword,
         },
+      });
+
+      // Parse base64 attachments
+      const mailAttachments = (attachments || []).map((att: { filename: string; content: string }) => {
+        // content is a data URL like "data:application/pdf;base64,..."
+        const matches = att.content.match(/^data:(.+);base64,(.+)$/);
+        if (matches) {
+          return {
+            filename: att.filename,
+            content: matches[2],
+            encoding: "base64",
+            contentType: matches[1],
+          };
+        }
+        return {
+          filename: att.filename,
+          content: att.content,
+        };
       });
 
       const results = [];
@@ -314,6 +332,7 @@ export async function registerRoutes(
             to: coach.email,
             subject: personalizedSubject,
             text: personalizedBody,
+            attachments: mailAttachments,
           });
 
           await storage.createContact({
@@ -396,6 +415,57 @@ export async function registerRoutes(
       res.status(204).send();
     } catch (error) {
       res.status(500).json({ error: "Failed to delete scheduled email" });
+    }
+  });
+
+  // Recruiting Profiles
+  app.get("/api/recruiting-profiles", isAuthenticated, async (req, res) => {
+    try {
+      const profiles = await storage.getRecruitingProfiles();
+      res.json(profiles);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch recruiting profiles" });
+    }
+  });
+
+  app.post("/api/recruiting-profiles", isAuthenticated, async (req, res) => {
+    try {
+      const data = insertRecruitingProfileSchema.parse(req.body);
+      const profile = await storage.createRecruitingProfile(data);
+      res.status(201).json(profile);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: error.errors });
+      }
+      res.status(500).json({ error: "Failed to create recruiting profile" });
+    }
+  });
+
+  app.patch("/api/recruiting-profiles/:id", isAuthenticated, async (req, res) => {
+    try {
+      const data = insertRecruitingProfileSchema.partial().parse(req.body);
+      const profile = await storage.updateRecruitingProfile(req.params.id, data);
+      if (!profile) {
+        return res.status(404).json({ error: "Profile not found" });
+      }
+      res.json(profile);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: error.errors });
+      }
+      res.status(500).json({ error: "Failed to update recruiting profile" });
+    }
+  });
+
+  app.delete("/api/recruiting-profiles/:id", isAuthenticated, async (req, res) => {
+    try {
+      const deleted = await storage.deleteRecruitingProfile(req.params.id);
+      if (!deleted) {
+        return res.status(404).json({ error: "Profile not found" });
+      }
+      res.status(204).send();
+    } catch (error) {
+      res.status(500).json({ error: "Failed to delete recruiting profile" });
     }
   });
 
