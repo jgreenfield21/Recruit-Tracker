@@ -76,3 +76,32 @@ shared/           # Shared types and schemas
 - **Vite**: Frontend build and dev server with HMR
 - **esbuild**: Production server bundling
 - **TypeScript**: Type checking across the entire codebase
+
+## Docker Deployment
+
+### Running with Docker Compose
+
+1. **Start the database and run migrations:**
+   ```bash
+   docker compose up db -d
+   docker compose --profile tools run migrate
+   ```
+
+2. **Start the application:**
+   ```bash
+   docker compose up --build
+   ```
+
+3. **Access the app:**
+   Open `http://localhost:5000`
+
+### Environment Variables
+
+The docker-compose.yml sets these defaults for local development:
+- `DATABASE_URL`: PostgreSQL connection string
+- `SESSION_SECRET`: Session encryption key (change in production)
+- `MOCK_AUTH`: Set to `true` for local development without Replit Auth
+
+### Volumes
+
+- `postgres_data`: Persists database data between container restarts
