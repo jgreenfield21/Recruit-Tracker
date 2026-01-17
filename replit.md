@@ -81,27 +81,38 @@ shared/           # Shared types and schemas
 
 ### Running with Docker Compose
 
-1. **Start the database and run migrations:**
+1. **Create a `.env` file** from the example:
    ```bash
-   docker compose up db -d
+   cp .env.example .env
+   # Edit .env with your Supabase connection string
+   ```
+
+2. **Run migrations:**
+   ```bash
    docker compose --profile tools run migrate
    ```
 
-2. **Start the application:**
+3. **Start the application:**
    ```bash
    docker compose up --build
    ```
 
-3. **Access the app:**
+4. **Access the app:**
    Open `http://localhost:5000`
 
 ### Environment Variables
 
-The docker-compose.yml sets these defaults for local development:
-- `DATABASE_URL`: PostgreSQL connection string
+The docker-compose.yml uses a `.env` file for configuration:
+- `DATABASE_URL`: PostgreSQL connection string (Supabase or local)
 - `SESSION_SECRET`: Session encryption key (change in production)
 - `MOCK_AUTH`: Set to `true` for local development without Replit Auth
 
-### Volumes
+## Database Setup (Supabase)
 
-- `postgres_data`: Persists database data between container restarts
+To use Supabase as your database:
+
+1. Create a project at [supabase.com](https://supabase.com)
+2. Go to **Settings** → **Database** → **Connection string** → **URI**
+3. Copy the connection string and replace `[YOUR-PASSWORD]` with your database password
+4. Set the `DATABASE_URL` secret in Replit or your `.env` file
+5. Run `npm run db:push` to create the tables
