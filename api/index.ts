@@ -470,6 +470,40 @@ const isAuthenticated = async (req: any, res: Response, next: NextFunction) => {
   return res.status(401).json({ message: "Unauthorized" });
 };
 
+app.get("/api/health", async (req, res) => {
+  try {
+    const result = await pool.query("SELECT NOW() as time, current_database() as database");
+    const tableCheck = await pool.query(`
+      SELECT table_name 
+      FROM information_schema.tables 
+      WHERE table_schema = 'public'
+      ORDER BY table_name
+    `);
+    res.json({
+      status: "ok",
+      database: result.rows[0].database,
+      serverTime: result.rows[0].time,
+      tables: tableCheck.rows.map(r => r.table_name),
+      environment: {
+        isProduction,
+        hasFirebase: isFirebaseConfigured,
+        hasDatabaseUrl: Boolean(process.env.DATABASE_URL),
+      }
+    });
+  } catch (error) {
+    console.error("Health check failed:", error);
+    res.status(500).json({
+      status: "error",
+      error: String(error),
+      environment: {
+        isProduction,
+        hasFirebase: isFirebaseConfigured,
+        hasDatabaseUrl: Boolean(process.env.DATABASE_URL),
+      }
+    });
+  }
+});
+
 app.get("/api/login", (req: any, res) => {
   if (process.env.MOCK_AUTH === "true") {
     req.session.user = { claims: { sub: "dev-user", email: "dev@localhost" } };
