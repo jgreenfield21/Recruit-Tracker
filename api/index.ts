@@ -140,6 +140,96 @@ const pool = new pg.Pool({
 });
 const db = drizzle(pool);
 
+async function initializeDatabase() {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS coaches (
+        id VARCHAR(36) PRIMARY KEY,
+        name TEXT NOT NULL,
+        email TEXT NOT NULL,
+        phone TEXT,
+        school TEXT NOT NULL,
+        position TEXT,
+        division TEXT,
+        salutation TEXT,
+        notes TEXT,
+        status TEXT NOT NULL DEFAULT 'not_contacted'
+      );
+      
+      CREATE TABLE IF NOT EXISTS contacts (
+        id VARCHAR(36) PRIMARY KEY,
+        coach_id VARCHAR(36) NOT NULL,
+        date TEXT NOT NULL,
+        method TEXT NOT NULL,
+        subject TEXT,
+        notes TEXT
+      );
+      
+      CREATE TABLE IF NOT EXISTS reminders (
+        id VARCHAR(36) PRIMARY KEY,
+        coach_id VARCHAR(36) NOT NULL,
+        due_date TEXT NOT NULL,
+        title TEXT NOT NULL,
+        notes TEXT,
+        completed BOOLEAN NOT NULL DEFAULT FALSE
+      );
+      
+      CREATE TABLE IF NOT EXISTS email_templates (
+        id VARCHAR(36) PRIMARY KEY,
+        name TEXT NOT NULL,
+        subject TEXT NOT NULL,
+        body TEXT NOT NULL
+      );
+      
+      CREATE TABLE IF NOT EXISTS gmail_settings (
+        id VARCHAR(36) PRIMARY KEY,
+        email TEXT NOT NULL,
+        app_password TEXT NOT NULL,
+        configured BOOLEAN NOT NULL DEFAULT FALSE
+      );
+      
+      CREATE TABLE IF NOT EXISTS scheduled_emails (
+        id VARCHAR(36) PRIMARY KEY,
+        coach_ids TEXT NOT NULL,
+        subject TEXT NOT NULL,
+        body TEXT NOT NULL,
+        scheduled_at TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending',
+        created_at TEXT NOT NULL
+      );
+      
+      CREATE TABLE IF NOT EXISTS users (
+        id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
+        email VARCHAR UNIQUE,
+        first_name VARCHAR,
+        last_name VARCHAR,
+        profile_image_url VARCHAR,
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW()
+      );
+      
+      CREATE TABLE IF NOT EXISTS recruiting_profiles (
+        id VARCHAR(36) PRIMARY KEY,
+        name TEXT NOT NULL,
+        url TEXT NOT NULL,
+        icon TEXT
+      );
+      
+      CREATE TABLE IF NOT EXISTS sessions (
+        sid VARCHAR PRIMARY KEY,
+        sess JSONB NOT NULL,
+        expire TIMESTAMP NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_session_expire ON sessions(expire);
+    `);
+    console.log("Database tables initialized successfully");
+  } catch (error) {
+    console.error("Error initializing database:", error);
+  }
+}
+
+initializeDatabase();
+
 class DatabaseStorage {
   async getUser(id: string): Promise<User | undefined> {
     const [user] = await db.select().from(users).where(eq(users.id, id));
@@ -436,10 +526,11 @@ app.post("/api/coaches", isAuthenticated, async (req, res) => {
     const coach = await storage.createCoach(data);
     res.status(201).json(coach);
   } catch (error) {
+    console.error("Error creating coach:", error);
     if (error instanceof z.ZodError) {
       return res.status(400).json({ error: error.errors });
     }
-    res.status(500).json({ error: "Failed to create coach" });
+    res.status(500).json({ error: "Failed to create coach", details: String(error) });
   }
 });
 
