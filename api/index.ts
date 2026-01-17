@@ -133,8 +133,10 @@ const insertRecruitingProfileSchema = createInsertSchema(recruitingProfiles).omi
 type InsertRecruitingProfile = z.infer<typeof insertRecruitingProfileSchema>;
 type RecruitingProfile = typeof recruitingProfiles.$inferSelect;
 
+const isProduction = process.env.NODE_ENV === "production" || process.env.VERCEL === "1";
 const pool = new pg.Pool({
   connectionString: process.env.DATABASE_URL,
+  ssl: isProduction ? { rejectUnauthorized: false } : undefined,
 });
 const db = drizzle(pool);
 
@@ -323,6 +325,7 @@ app.use(express.urlencoded({ extended: false, limit: '50mb' }));
 const PostgresSessionStore = pgSession(session);
 const sessionPool = new pg.Pool({
   connectionString: process.env.DATABASE_URL,
+  ssl: isProduction ? { rejectUnauthorized: false } : undefined,
 });
 
 app.use(
@@ -335,10 +338,10 @@ app.use(
     resave: false,
     saveUninitialized: false,
     cookie: {
-      secure: process.env.NODE_ENV === "production",
+      secure: isProduction,
       httpOnly: true,
       maxAge: 30 * 24 * 60 * 60 * 1000,
-      sameSite: "lax",
+      sameSite: isProduction ? "none" : "lax",
     },
   })
 );
