@@ -1,16 +1,315 @@
 import express, { type Request, Response, NextFunction } from "express";
-import { storage } from "../server/storage";
 import nodemailer from "nodemailer";
-import { insertCoachSchema, insertContactSchema, insertReminderSchema, insertEmailTemplateSchema, insertGmailSettingsSchema, insertScheduledEmailSchema, insertRecruitingProfileSchema } from "../shared/schema";
 import { z } from "zod";
 import session from "express-session";
 import pgSession from "connect-pg-simple";
 import pg from "pg";
+import { drizzle } from "drizzle-orm/node-postgres";
+import { eq } from "drizzle-orm";
+import { pgTable, text, varchar, timestamp, boolean, index, jsonb } from "drizzle-orm/pg-core";
+import { createInsertSchema } from "drizzle-zod";
+import { sql } from "drizzle-orm";
+import { randomUUID } from "crypto";
+
+const sessions = pgTable(
+  "sessions",
+  {
+    sid: varchar("sid").primaryKey(),
+    sess: jsonb("sess").notNull(),
+    expire: timestamp("expire").notNull(),
+  },
+  (table) => [index("IDX_session_expire").on(table.expire)],
+);
+
+const coaches = pgTable("coaches", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  name: text("name").notNull(),
+  email: text("email").notNull(),
+  phone: text("phone"),
+  school: text("school").notNull(),
+  position: text("position"),
+  division: text("division"),
+  salutation: text("salutation"),
+  notes: text("notes"),
+  status: text("status").notNull().default("not_contacted"),
+});
+
+const insertCoachSchema = createInsertSchema(coaches).omit({ id: true });
+type InsertCoach = z.infer<typeof insertCoachSchema>;
+type Coach = typeof coaches.$inferSelect;
+
+const contacts = pgTable("contacts", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  coachId: varchar("coach_id", { length: 36 }).notNull(),
+  date: text("date").notNull(),
+  method: text("method").notNull(),
+  subject: text("subject"),
+  notes: text("notes"),
+});
+
+const insertContactSchema = createInsertSchema(contacts).omit({ id: true });
+type InsertContact = z.infer<typeof insertContactSchema>;
+type Contact = typeof contacts.$inferSelect;
+
+const reminders = pgTable("reminders", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  coachId: varchar("coach_id", { length: 36 }).notNull(),
+  dueDate: text("due_date").notNull(),
+  title: text("title").notNull(),
+  notes: text("notes"),
+  completed: boolean("completed").notNull().default(false),
+});
+
+const insertReminderSchema = createInsertSchema(reminders).omit({ id: true });
+type InsertReminder = z.infer<typeof insertReminderSchema>;
+type Reminder = typeof reminders.$inferSelect;
+
+const emailTemplates = pgTable("email_templates", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  name: text("name").notNull(),
+  subject: text("subject").notNull(),
+  body: text("body").notNull(),
+});
+
+const insertEmailTemplateSchema = createInsertSchema(emailTemplates).omit({ id: true });
+type InsertEmailTemplate = z.infer<typeof insertEmailTemplateSchema>;
+type EmailTemplate = typeof emailTemplates.$inferSelect;
+
+const gmailSettings = pgTable("gmail_settings", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  email: text("email").notNull(),
+  appPassword: text("app_password").notNull(),
+  configured: boolean("configured").notNull().default(false),
+});
+
+const insertGmailSettingsSchema = createInsertSchema(gmailSettings).omit({ id: true });
+type InsertGmailSettings = z.infer<typeof insertGmailSettingsSchema>;
+type GmailSettings = typeof gmailSettings.$inferSelect;
+
+const scheduledEmails = pgTable("scheduled_emails", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  coachIds: text("coach_ids").notNull(),
+  subject: text("subject").notNull(),
+  body: text("body").notNull(),
+  scheduledAt: text("scheduled_at").notNull(),
+  status: text("status").notNull().default("pending"),
+  createdAt: text("created_at").notNull(),
+});
+
+const insertScheduledEmailSchema = createInsertSchema(scheduledEmails).omit({ id: true });
+type InsertScheduledEmail = z.infer<typeof insertScheduledEmailSchema>;
+type ScheduledEmail = typeof scheduledEmails.$inferSelect;
+
+const users = pgTable("users", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  email: varchar("email").unique(),
+  firstName: varchar("first_name"),
+  lastName: varchar("last_name"),
+  profileImageUrl: varchar("profile_image_url"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+type UpsertUser = typeof users.$inferInsert;
+type User = typeof users.$inferSelect;
+
+const recruitingProfiles = pgTable("recruiting_profiles", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  name: text("name").notNull(),
+  url: text("url").notNull(),
+  icon: text("icon"),
+});
+
+const insertRecruitingProfileSchema = createInsertSchema(recruitingProfiles).omit({ id: true });
+type InsertRecruitingProfile = z.infer<typeof insertRecruitingProfileSchema>;
+type RecruitingProfile = typeof recruitingProfiles.$inferSelect;
+
+const pool = new pg.Pool({
+  connectionString: process.env.DATABASE_URL,
+});
+const db = drizzle(pool);
+
+class DatabaseStorage {
+  async getUser(id: string): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(eq(users.id, id));
+    return user;
+  }
+
+  async upsertUser(userData: UpsertUser): Promise<User> {
+    const [user] = await db
+      .insert(users)
+      .values(userData)
+      .onConflictDoUpdate({
+        target: users.id,
+        set: {
+          ...userData,
+          updatedAt: new Date(),
+        },
+      })
+      .returning();
+    return user;
+  }
+
+  async getCoaches(): Promise<Coach[]> {
+    return await db.select().from(coaches);
+  }
+
+  async getCoach(id: string): Promise<Coach | undefined> {
+    const [coach] = await db.select().from(coaches).where(eq(coaches.id, id));
+    return coach;
+  }
+
+  async createCoach(coach: InsertCoach): Promise<Coach> {
+    const id = randomUUID();
+    const [newCoach] = await db.insert(coaches).values({ ...coach, id, status: coach.status || "not_contacted" }).returning();
+    return newCoach;
+  }
+
+  async updateCoach(id: string, updates: Partial<InsertCoach>): Promise<Coach | undefined> {
+    const [updated] = await db.update(coaches).set(updates).where(eq(coaches.id, id)).returning();
+    return updated;
+  }
+
+  async deleteCoach(id: string): Promise<boolean> {
+    const result = await db.delete(coaches).where(eq(coaches.id, id));
+    return true;
+  }
+
+  async getContacts(): Promise<Contact[]> {
+    return await db.select().from(contacts);
+  }
+
+  async getContactsByCoach(coachId: string): Promise<Contact[]> {
+    return await db.select().from(contacts).where(eq(contacts.coachId, coachId));
+  }
+
+  async createContact(contact: InsertContact): Promise<Contact> {
+    const id = randomUUID();
+    const [newContact] = await db.insert(contacts).values({ ...contact, id }).returning();
+    return newContact;
+  }
+
+  async deleteContact(id: string): Promise<boolean> {
+    await db.delete(contacts).where(eq(contacts.id, id));
+    return true;
+  }
+
+  async getReminders(): Promise<Reminder[]> {
+    return await db.select().from(reminders);
+  }
+
+  async getRemindersByCoach(coachId: string): Promise<Reminder[]> {
+    return await db.select().from(reminders).where(eq(reminders.coachId, coachId));
+  }
+
+  async createReminder(reminder: InsertReminder): Promise<Reminder> {
+    const id = randomUUID();
+    const [newReminder] = await db.insert(reminders).values({ ...reminder, id, completed: reminder.completed || false }).returning();
+    return newReminder;
+  }
+
+  async updateReminder(id: string, updates: Partial<InsertReminder>): Promise<Reminder | undefined> {
+    const [updated] = await db.update(reminders).set(updates).where(eq(reminders.id, id)).returning();
+    return updated;
+  }
+
+  async deleteReminder(id: string): Promise<boolean> {
+    await db.delete(reminders).where(eq(reminders.id, id));
+    return true;
+  }
+
+  async getTemplates(): Promise<EmailTemplate[]> {
+    return await db.select().from(emailTemplates);
+  }
+
+  async getTemplate(id: string): Promise<EmailTemplate | undefined> {
+    const [template] = await db.select().from(emailTemplates).where(eq(emailTemplates.id, id));
+    return template;
+  }
+
+  async createTemplate(template: InsertEmailTemplate): Promise<EmailTemplate> {
+    const id = randomUUID();
+    const [newTemplate] = await db.insert(emailTemplates).values({ ...template, id }).returning();
+    return newTemplate;
+  }
+
+  async updateTemplate(id: string, updates: Partial<InsertEmailTemplate>): Promise<EmailTemplate | undefined> {
+    const [updated] = await db.update(emailTemplates).set(updates).where(eq(emailTemplates.id, id)).returning();
+    return updated;
+  }
+
+  async deleteTemplate(id: string): Promise<boolean> {
+    await db.delete(emailTemplates).where(eq(emailTemplates.id, id));
+    return true;
+  }
+
+  async getGmailSettings(): Promise<GmailSettings | undefined> {
+    const [settings] = await db.select().from(gmailSettings);
+    return settings;
+  }
+
+  async saveGmailSettings(settings: InsertGmailSettings): Promise<GmailSettings> {
+    const existing = await this.getGmailSettings();
+    if (existing) {
+      const [updated] = await db.update(gmailSettings).set(settings).where(eq(gmailSettings.id, existing.id)).returning();
+      return updated;
+    }
+    const id = randomUUID();
+    const [newSettings] = await db.insert(gmailSettings).values({ ...settings, id }).returning();
+    return newSettings;
+  }
+
+  async getScheduledEmails(): Promise<ScheduledEmail[]> {
+    return await db.select().from(scheduledEmails);
+  }
+
+  async getPendingScheduledEmails(): Promise<ScheduledEmail[]> {
+    return await db.select().from(scheduledEmails).where(eq(scheduledEmails.status, "pending"));
+  }
+
+  async createScheduledEmail(email: InsertScheduledEmail): Promise<ScheduledEmail> {
+    const id = randomUUID();
+    const [newEmail] = await db.insert(scheduledEmails).values({ ...email, id, status: email.status || "pending" }).returning();
+    return newEmail;
+  }
+
+  async updateScheduledEmail(id: string, updates: Partial<InsertScheduledEmail>): Promise<ScheduledEmail | undefined> {
+    const [updated] = await db.update(scheduledEmails).set(updates).where(eq(scheduledEmails.id, id)).returning();
+    return updated;
+  }
+
+  async deleteScheduledEmail(id: string): Promise<boolean> {
+    await db.delete(scheduledEmails).where(eq(scheduledEmails.id, id));
+    return true;
+  }
+
+  async getRecruitingProfiles(): Promise<RecruitingProfile[]> {
+    return await db.select().from(recruitingProfiles);
+  }
+
+  async createRecruitingProfile(profile: InsertRecruitingProfile): Promise<RecruitingProfile> {
+    const id = randomUUID();
+    const [newProfile] = await db.insert(recruitingProfiles).values({ ...profile, id }).returning();
+    return newProfile;
+  }
+
+  async updateRecruitingProfile(id: string, updates: Partial<InsertRecruitingProfile>): Promise<RecruitingProfile | undefined> {
+    const [updated] = await db.update(recruitingProfiles).set(updates).where(eq(recruitingProfiles.id, id)).returning();
+    return updated;
+  }
+
+  async deleteRecruitingProfile(id: string): Promise<boolean> {
+    await db.delete(recruitingProfiles).where(eq(recruitingProfiles.id, id));
+    return true;
+  }
+}
+
+const storage = new DatabaseStorage();
 
 const app = express();
 
-app.use(express.json());
-app.use(express.urlencoded({ extended: false }));
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: false, limit: '50mb' }));
 
 const PostgresSessionStore = pgSession(session);
 const sessionPool = new pg.Pool({
@@ -123,9 +422,7 @@ app.delete("/api/coaches/:id", isAuthenticated, async (req, res) => {
 app.get("/api/contacts", isAuthenticated, async (req, res) => {
   try {
     const coachId = req.query.coachId as string | undefined;
-    const contacts = coachId
-      ? await storage.getContactsByCoach(coachId)
-      : await storage.getContacts();
+    const contacts = coachId ? await storage.getContactsByCoach(coachId) : await storage.getContacts();
     res.json(contacts);
   } catch (error) {
     res.status(500).json({ error: "Failed to fetch contacts" });
@@ -148,6 +445,18 @@ app.post("/api/contacts", isAuthenticated, async (req, res) => {
       return res.status(400).json({ error: error.errors });
     }
     res.status(500).json({ error: "Failed to create contact" });
+  }
+});
+
+app.delete("/api/contacts/:id", isAuthenticated, async (req, res) => {
+  try {
+    const deleted = await storage.deleteContact(req.params.id);
+    if (!deleted) {
+      return res.status(404).json({ error: "Contact not found" });
+    }
+    res.status(204).send();
+  } catch (error) {
+    res.status(500).json({ error: "Failed to delete contact" });
   }
 });
 
@@ -210,6 +519,18 @@ app.get("/api/templates", isAuthenticated, async (req, res) => {
   }
 });
 
+app.get("/api/templates/:id", isAuthenticated, async (req, res) => {
+  try {
+    const template = await storage.getTemplate(req.params.id);
+    if (!template) {
+      return res.status(404).json({ error: "Template not found" });
+    }
+    res.json(template);
+  } catch (error) {
+    res.status(500).json({ error: "Failed to fetch template" });
+  }
+});
+
 app.post("/api/templates", isAuthenticated, async (req, res) => {
   try {
     const data = insertEmailTemplateSchema.parse(req.body);
@@ -258,8 +579,9 @@ app.get("/api/gmail-settings", isAuthenticated, async (req, res) => {
       return res.json({ configured: false });
     }
     res.json({
-      ...settings,
-      appPassword: settings.appPassword ? "••••••••" : undefined,
+      id: settings.id,
+      email: settings.email,
+      configured: settings.configured,
     });
   } catch (error) {
     res.status(500).json({ error: "Failed to fetch settings" });
@@ -271,8 +593,9 @@ app.post("/api/gmail-settings", isAuthenticated, async (req, res) => {
     const data = insertGmailSettingsSchema.parse(req.body);
     const settings = await storage.saveGmailSettings(data);
     res.json({
-      ...settings,
-      appPassword: "••••••••",
+      id: settings.id,
+      email: settings.email,
+      configured: settings.configured,
     });
   } catch (error) {
     if (error instanceof z.ZodError) {
@@ -356,6 +679,48 @@ app.delete("/api/recruiting-profiles/:id", isAuthenticated, async (req, res) => 
   }
 });
 
+app.get("/api/scheduled-emails", isAuthenticated, async (req, res) => {
+  try {
+    const emails = await storage.getScheduledEmails();
+    res.json(emails);
+  } catch (error) {
+    res.status(500).json({ error: "Failed to fetch scheduled emails" });
+  }
+});
+
+app.post("/api/scheduled-emails", isAuthenticated, async (req, res) => {
+  try {
+    const { coachIds, subject, body, scheduledAt } = req.body;
+    const data = {
+      coachIds: Array.isArray(coachIds) ? coachIds.join(",") : coachIds,
+      subject,
+      body,
+      scheduledAt,
+      status: "pending",
+      createdAt: new Date().toISOString(),
+    };
+    const email = await storage.createScheduledEmail(data);
+    res.status(201).json(email);
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: error.errors });
+    }
+    res.status(500).json({ error: "Failed to schedule email" });
+  }
+});
+
+app.delete("/api/scheduled-emails/:id", isAuthenticated, async (req, res) => {
+  try {
+    const deleted = await storage.deleteScheduledEmail(req.params.id);
+    if (!deleted) {
+      return res.status(404).json({ error: "Scheduled email not found" });
+    }
+    res.status(204).send();
+  } catch (error) {
+    res.status(500).json({ error: "Failed to delete scheduled email" });
+  }
+});
+
 app.post("/api/send-emails", isAuthenticated, async (req, res) => {
   try {
     const { coachIds, subject, body, attachments } = req.body;
@@ -379,100 +744,72 @@ app.post("/api/send-emails", isAuthenticated, async (req, res) => {
       },
     });
 
-    const mailAttachments = (attachments || []).map((att: { filename: string; content: string }) => {
-      const matches = att.content.match(/^data:(.+);base64,(.+)$/);
-      if (matches) {
-        return {
-          filename: att.filename,
-          content: matches[2],
-          encoding: "base64",
-          contentType: matches[1],
-        };
-      }
-      return { filename: att.filename, content: att.content };
-    });
+    const results: { success: string[]; failed: { id: string; error: string }[] } = {
+      success: [],
+      failed: [],
+    };
 
-    const results: Array<{ coachId: string; success: boolean; error?: string }> = [];
     for (const coachId of coachIds) {
-      const coach = await storage.getCoach(coachId);
-      if (!coach) continue;
-
-      const personalizedSubject = subject
-        .replace(/\{\{coach_name\}\}/g, coach.name)
-        .replace(/\{\{salutation\}\}/g, coach.salutation || coach.name.split(" ")[0])
-        .replace(/\{\{school\}\}/g, coach.school)
-        .replace(/\{\{position\}\}/g, coach.position || "Coach");
-
-      const personalizedBody = body
-        .replace(/\{\{coach_name\}\}/g, coach.name)
-        .replace(/\{\{salutation\}\}/g, coach.salutation || coach.name.split(" ")[0])
-        .replace(/\{\{school\}\}/g, coach.school)
-        .replace(/\{\{position\}\}/g, coach.position || "Coach");
-
       try {
-        await transporter.sendMail({
+        const coach = await storage.getCoach(coachId);
+        if (!coach) {
+          results.failed.push({ id: coachId, error: "Coach not found" });
+          continue;
+        }
+
+        let personalizedBody = body
+          .replace(/\{\{coach_name\}\}/g, coach.name)
+          .replace(/\{\{school\}\}/g, coach.school)
+          .replace(/\{\{salutation\}\}/g, coach.salutation || "Coach")
+          .replace(/\{\{position\}\}/g, coach.position || "");
+
+        let personalizedSubject = subject
+          .replace(/\{\{coach_name\}\}/g, coach.name)
+          .replace(/\{\{school\}\}/g, coach.school)
+          .replace(/\{\{salutation\}\}/g, coach.salutation || "Coach")
+          .replace(/\{\{position\}\}/g, coach.position || "");
+
+        const mailOptions: any = {
           from: settings.email,
           to: coach.email,
           subject: personalizedSubject,
           text: personalizedBody,
-          attachments: mailAttachments,
-        });
+        };
+
+        if (attachments && Array.isArray(attachments) && attachments.length > 0) {
+          mailOptions.attachments = attachments.map((att: any) => ({
+            filename: att.name,
+            content: Buffer.from(att.data, "base64"),
+            contentType: att.type,
+          }));
+        }
+
+        await transporter.sendMail(mailOptions);
 
         await storage.createContact({
-          coachId: coach.id,
+          coachId,
           date: new Date().toISOString().split("T")[0],
           method: "email",
           subject: personalizedSubject,
-          notes: "Sent via RecruitTrack",
+          notes: `Sent via RecruitTrack`,
         });
 
         if (coach.status === "not_contacted") {
-          await storage.updateCoach(coach.id, { status: "awaiting_response" });
+          await storage.updateCoach(coachId, { status: "contacted" });
         }
 
-        results.push({ coachId: coach.id, success: true });
-      } catch (emailError: any) {
-        results.push({ coachId: coach.id, success: false, error: emailError.message });
+        results.success.push(coachId);
+      } catch (error: any) {
+        results.failed.push({ id: coachId, error: error.message });
       }
     }
 
-    res.json({ results });
+    res.json({
+      message: `Sent ${results.success.length} emails successfully`,
+      results,
+    });
   } catch (error: any) {
     res.status(500).json({ error: error.message || "Failed to send emails" });
-  }
-});
-
-app.get("/api/scheduled-emails", isAuthenticated, async (req, res) => {
-  try {
-    const emails = await storage.getScheduledEmails();
-    res.json(emails);
-  } catch (error) {
-    res.status(500).json({ error: "Failed to fetch scheduled emails" });
-  }
-});
-
-app.post("/api/scheduled-emails", isAuthenticated, async (req, res) => {
-  try {
-    const data = insertScheduledEmailSchema.parse(req.body);
-    const email = await storage.createScheduledEmail(data);
-    res.status(201).json(email);
-  } catch (error) {
-    if (error instanceof z.ZodError) {
-      return res.status(400).json({ error: error.errors });
-    }
-    res.status(500).json({ error: "Failed to schedule email" });
-  }
-});
-
-app.delete("/api/scheduled-emails/:id", isAuthenticated, async (req, res) => {
-  try {
-    const deleted = await storage.deleteScheduledEmail(req.params.id);
-    if (!deleted) {
-      return res.status(404).json({ error: "Scheduled email not found" });
-    }
-    res.status(204).send();
-  } catch (error) {
-    res.status(500).json({ error: "Failed to delete scheduled email" });
   }
 });
 

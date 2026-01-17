@@ -1,0 +1,45 @@
+build is successful. build log:
+
+09:54:32.623 server/storage.ts(196,11): error TS2322: Type '{ id: `${string}-${string}-${string}-${string}-${string}`; status: string; name: string; email: string; school: string; phone?: string | null | undefined; position?: string | null | undefined; division?: string | null | undefined; salutation?: string | ... 1 more ... | undefined; notes?: string | ... 1 more ... | un...' is not assignable to type '{ id: string; name: string; email: string; phone: string | null; school: string; position: string | null; division: string | null; salutation: string | null; notes: string | null; status: string; }'.
+
+09:54:32.626 server/storage.ts(226,11): error TS2322: Type '{ id: `${string}-${string}-${string}-${string}-${string}`; date: string; coachId: string; method: string; notes?: string | null | undefined; subject?: string | null | undefined; }' is not assignable to type '{ id: string; date: string; notes: string | null; coachId: string; method: string; subject: string | null; }'.
+
+09:54:32.627 server/storage.ts(246,11): error TS2322: Type '{ id: `${string}-${string}-${string}-${string}-${string}`; completed: boolean; coachId: string; dueDate: string; title: string; notes?: string | null | undefined; }' is not assignable to type '{ id: string; notes: string | null; coachId: string; dueDate: string; title: string; completed: boolean; }'.
+
+09:54:32.629 server/storage.ts(342,11): error TS2322: Type '{ id: `${string}-${string}-${string}-${string}-${string}`; url: string; name: string; icon?: string | null | undefined; }' is not assignable to type '{ url: string; id: string; name: string; icon: string | null; }'.
+
+
+app deployed here: 
+
+https://recruit-tracker-two.vercel.app
+
+
+when I click log in: I get a 500 error
+
+2026-01-17 14:54:41.616 [error] Error [ERR_MODULE_NOT_FOUND]: Cannot find module '/var/task/server/storage' imported from /var/task/api/index.js
+
+    at finalizeResolution (node:internal/modules/esm/resolve:280:11)
+
+    at moduleResolve (node:internal/modules/esm/resolve:870:10)
+
+    at moduleResolveWithNodePath (node:internal/modules/esm/resolve:996:14)
+
+    at defaultResolve (node:internal/modules/esm/resolve:1039:79)
+
+    at #cachedDefaultResolve (node:internal/modules/esm/loader:757:20)
+
+    at ModuleLoader.resolve (node:internal/modules/esm/loader:734:38)
+
+    at ModuleLoader.getModuleJobForImport (node:internal/modules/esm/loader:317:38)
+
+    at #link (node:internal/modules/esm/module_job:208:49)
+
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5) {
+
+  code: 'ERR_MODULE_NOT_FOUND',
+
+  url: 'file:///var/task/server/storage'
+
+}
+
+Node.js process exited with exit status: 1. The logs above can help with debugging the issue.

@@ -193,7 +193,18 @@ Best regards,
 
   async createCoach(coach: InsertCoach): Promise<Coach> {
     const id = randomUUID();
-    const newCoach: Coach = { ...coach, id, status: coach.status || "not_contacted" };
+    const newCoach: Coach = {
+      id,
+      name: coach.name,
+      email: coach.email,
+      school: coach.school,
+      phone: coach.phone ?? null,
+      position: coach.position ?? null,
+      division: coach.division ?? null,
+      salutation: coach.salutation ?? null,
+      notes: coach.notes ?? null,
+      status: coach.status || "not_contacted",
+    };
     this.coaches.set(id, newCoach);
     return newCoach;
   }
@@ -223,7 +234,14 @@ Best regards,
 
   async createContact(contact: InsertContact): Promise<Contact> {
     const id = randomUUID();
-    const newContact: Contact = { ...contact, id };
+    const newContact: Contact = {
+      id,
+      coachId: contact.coachId,
+      date: contact.date,
+      method: contact.method,
+      subject: contact.subject ?? null,
+      notes: contact.notes ?? null,
+    };
     this.contacts.set(id, newContact);
     return newContact;
   }
@@ -243,7 +261,14 @@ Best regards,
 
   async createReminder(reminder: InsertReminder): Promise<Reminder> {
     const id = randomUUID();
-    const newReminder: Reminder = { ...reminder, id, completed: reminder.completed || false };
+    const newReminder: Reminder = {
+      id,
+      coachId: reminder.coachId,
+      dueDate: reminder.dueDate,
+      title: reminder.title,
+      notes: reminder.notes ?? null,
+      completed: reminder.completed || false,
+    };
     this.reminders.set(id, newReminder);
     return newReminder;
   }
@@ -339,7 +364,12 @@ Best regards,
 
   async createRecruitingProfile(profile: InsertRecruitingProfile): Promise<RecruitingProfile> {
     const id = randomUUID();
-    const newProfile: RecruitingProfile = { ...profile, id };
+    const newProfile: RecruitingProfile = {
+      id,
+      name: profile.name,
+      url: profile.url,
+      icon: profile.icon ?? null,
+    };
     this.recruitingProfiles.set(id, newProfile);
     return newProfile;
   }
