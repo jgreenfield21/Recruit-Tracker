@@ -1,17 +1,32 @@
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Users, Mail, Bell, BarChart3, FileText, Calendar } from "lucide-react";
+import { useAuth } from "@/hooks/useAuth";
 
 export default function Landing() {
+  const { isFirebaseConfigured, signInWithGoogle } = useAuth();
+
+  const handleLogin = async () => {
+    if (isFirebaseConfigured) {
+      try {
+        await signInWithGoogle();
+      } catch (error) {
+        console.error("Login failed:", error);
+      }
+    } else {
+      window.location.href = "/api/login";
+    }
+  };
+
   return (
     <div className="min-h-screen bg-background">
       <header className="flex items-center justify-between gap-4 p-4 border-b">
         <h1 className="text-xl font-semibold">RecruitTrack</h1>
         <div className="flex items-center gap-2">
           <ThemeToggle />
-          <Button asChild data-testid="button-login">
-            <a href="/api/login">Log In</a>
+          <Button onClick={handleLogin} data-testid="button-login">
+            {isFirebaseConfigured ? "Sign in with Google" : "Log In"}
           </Button>
         </div>
       </header>
@@ -25,8 +40,8 @@ export default function Landing() {
             Track college coaches, send personalized emails, set reminders, and stay organized 
             throughout your recruiting process.
           </p>
-          <Button size="lg" asChild data-testid="button-get-started">
-            <a href="/api/login">Get Started</a>
+          <Button size="lg" onClick={handleLogin} data-testid="button-get-started">
+            {isFirebaseConfigured ? "Sign in with Google" : "Get Started"}
           </Button>
         </div>
 

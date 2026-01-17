@@ -126,9 +126,23 @@ To deploy on Vercel:
 3. Add environment variables:
    - `DATABASE_URL`: Your Supabase connection string
    - `SESSION_SECRET`: A random secret for session encryption
-   - `MOCK_AUTH`: Set to `true` for testing without Replit Auth
+   - For Google Auth via Firebase:
+     - `FIREBASE_PROJECT_ID`: Your Firebase project ID
+     - `VITE_FIREBASE_PROJECT_ID`: Same as above (for frontend)
+     - `VITE_FIREBASE_APP_ID`: Your Firebase app ID
+     - `VITE_FIREBASE_API_KEY`: Your Firebase API key
+   - Or set `MOCK_AUTH=true` for testing without authentication
 4. Deploy - Vercel will auto-detect the Vite framework
 
+### Firebase Setup for Google Authentication
+
+1. Go to [Firebase Console](https://console.firebase.google.com/) and create a new project
+2. Click "Add app" and select Web (</>)
+3. Go to Authentication > Sign-in method and enable Google
+4. Add your Vercel domain (e.g., your-app.vercel.app) to Authentication > Settings > Authorized domains
+5. Copy projectId, apiKey, and appId from your app settings to Vercel environment variables
+
 The app uses:
-- `api/index.ts` - Serverless Express function for API routes
+- `api/index.ts` - Serverless Express function for API routes with Firebase token verification
 - `vercel.json` - Routing configuration for API and SPA
+- `client/src/lib/firebase.ts` - Firebase client-side authentication

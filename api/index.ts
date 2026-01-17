@@ -10,6 +10,15 @@ import { pgTable, text, varchar, timestamp, boolean, index, jsonb } from "drizzl
 import { createInsertSchema } from "drizzle-zod";
 import { sql } from "drizzle-orm";
 import { randomUUID } from "crypto";
+import admin from "firebase-admin";
+
+const isFirebaseConfigured = Boolean(process.env.FIREBASE_PROJECT_ID);
+
+if (isFirebaseConfigured && admin.apps.length === 0) {
+  admin.initializeApp({
+    projectId: process.env.FIREBASE_PROJECT_ID,
+  });
+}
 
 const sessions = pgTable(
   "sessions",
@@ -334,16 +343,38 @@ app.use(
   })
 );
 
-const isAuthenticated = (req: any, res: Response, next: NextFunction) => {
+const isAuthenticated = async (req: any, res: Response, next: NextFunction) => {
   if (process.env.MOCK_AUTH === "true") {
     req.user = { claims: { sub: "dev-user", email: "dev@localhost" } };
     return next();
   }
-  if (!req.session?.user) {
-    return res.status(401).json({ message: "Unauthorized" });
+
+  const authHeader = req.headers.authorization;
+  if (authHeader && authHeader.startsWith("Bearer ") && isFirebaseConfigured) {
+    const idToken = authHeader.split("Bearer ")[1];
+    try {
+      const decodedToken = await admin.auth().verifyIdToken(idToken);
+      req.user = {
+        claims: {
+          sub: decodedToken.uid,
+          email: decodedToken.email || "",
+          name: decodedToken.name,
+          picture: decodedToken.picture,
+        },
+      };
+      return next();
+    } catch (error) {
+      console.error("Firebase token verification failed:", error);
+      return res.status(401).json({ message: "Invalid token" });
+    }
   }
-  req.user = req.session.user;
-  next();
+
+  if (req.session?.user) {
+    req.user = req.session.user;
+    return next();
+  }
+
+  return res.status(401).json({ message: "Unauthorized" });
 };
 
 app.get("/api/login", (req: any, res) => {
