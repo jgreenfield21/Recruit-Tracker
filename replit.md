@@ -116,3 +116,19 @@ To use Supabase as your database:
 3. Copy the connection string and replace `[YOUR-PASSWORD]` with your database password
 4. Set the `DATABASE_URL` secret in Replit or your `.env` file
 5. Run `npm run db:push` to create the tables
+
+## Vercel Deployment
+
+To deploy on Vercel:
+
+1. Push your code to GitHub
+2. Import the project in Vercel dashboard
+3. Add environment variables:
+   - `DATABASE_URL`: Your Supabase connection string
+   - `SESSION_SECRET`: A random secret for session encryption
+   - `MOCK_AUTH`: Set to `true` for testing without Replit Auth
+4. Deploy - Vercel will auto-detect the Vite framework
+
+The app uses:
+- `api/index.ts` - Serverless Express function for API routes
+- `vercel.json` - Routing configuration for API and SPA
