@@ -346,6 +346,24 @@ const isAuthenticated = (req: any, res: Response, next: NextFunction) => {
   next();
 };
 
+app.get("/api/login", (req: any, res) => {
+  if (process.env.MOCK_AUTH === "true") {
+    req.session.user = { claims: { sub: "dev-user", email: "dev@localhost" } };
+    return res.redirect("/");
+  }
+  res.status(501).json({ error: "OAuth login not configured for Vercel. Set MOCK_AUTH=true or use Replit deployment." });
+});
+
+app.get("/api/callback", (req, res) => {
+  res.redirect("/");
+});
+
+app.get("/api/logout", (req: any, res) => {
+  req.session.destroy(() => {
+    res.redirect("/");
+  });
+});
+
 app.get('/api/auth/user', isAuthenticated, async (req: any, res) => {
   try {
     const userId = req.user.claims.sub;
