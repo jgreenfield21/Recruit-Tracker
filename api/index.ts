@@ -786,9 +786,13 @@ app.get("/api/gmail-settings", isAuthenticated, async (req, res) => {
   }
 });
 
-app.post("/api/gmail-settings", isAuthenticated, async (req, res) => {
+app.post("/api/gmail-settings", isAuthenticated, async (req: any, res) => {
   try {
-    const data = insertGmailSettingsSchema.parse(req.body);
+    const userId = req.user?.uid || req.user?.claims?.sub;
+    const data = insertGmailSettingsSchema.parse({
+      ...req.body,
+      userId: userId || req.body.userId
+    });
     const settings = await storage.saveGmailSettings(data);
     res.json({
       id: settings.id,
