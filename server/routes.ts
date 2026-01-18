@@ -98,7 +98,7 @@ export async function registerRoutes(
 
   app.post("/api/contacts", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user?.claims?.sub;
+      const userId = (req.user as any)?.uid || (req.user as any)?.claims?.sub;
       const data = insertContactSchema.parse({
         ...req.body,
         userId: userId || req.body.userId
@@ -331,7 +331,7 @@ export async function registerRoutes(
           .replace(/\{\{position\}\}/g, coach.position || "Coach");
 
         try {
-          const userId = req.user?.uid || req.user?.claims?.sub;
+          const userId = (req.user as any)?.uid || (req.user as any)?.claims?.sub;
           await transporter.sendMail({
             from: settings.email,
             to: coach.email,
