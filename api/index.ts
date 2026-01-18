@@ -663,9 +663,13 @@ app.get("/api/reminders", isAuthenticated, async (req, res) => {
   }
 });
 
-app.post("/api/reminders", isAuthenticated, async (req, res) => {
+app.post("/api/reminders", isAuthenticated, async (req: any, res) => {
   try {
-    const data = insertReminderSchema.parse(req.body);
+    const userId = req.user?.uid || req.user?.claims?.sub;
+    const data = insertReminderSchema.parse({
+      ...req.body,
+      userId: userId || req.body.userId
+    });
     const reminder = await storage.createReminder(data);
     res.status(201).json(reminder);
   } catch (error) {
@@ -832,9 +836,13 @@ app.get("/api/recruiting-profiles", isAuthenticated, async (req, res) => {
   }
 });
 
-app.post("/api/recruiting-profiles", isAuthenticated, async (req, res) => {
+app.post("/api/recruiting-profiles", isAuthenticated, async (req: any, res) => {
   try {
-    const data = insertRecruitingProfileSchema.parse(req.body);
+    const userId = req.user?.uid || req.user?.claims?.sub;
+    const data = insertRecruitingProfileSchema.parse({
+      ...req.body,
+      userId: userId || req.body.userId
+    });
     const profile = await storage.createRecruitingProfile(data);
     res.status(201).json(profile);
   } catch (error) {

@@ -129,9 +129,13 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/reminders", isAuthenticated, async (req, res) => {
+  app.post("/api/reminders", isAuthenticated, async (req: any, res) => {
     try {
-      const data = insertReminderSchema.parse(req.body);
+      const userId = (req.user as any)?.uid || (req.user as any)?.claims?.sub;
+      const data = insertReminderSchema.parse({
+        ...req.body,
+        userId: userId || req.body.userId
+      });
       const reminder = await storage.createReminder(data);
       res.status(201).json(reminder);
     } catch (error) {
@@ -434,9 +438,13 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/recruiting-profiles", isAuthenticated, async (req, res) => {
+  app.post("/api/recruiting-profiles", isAuthenticated, async (req: any, res) => {
     try {
-      const data = insertRecruitingProfileSchema.parse(req.body);
+      const userId = (req.user as any)?.uid || (req.user as any)?.claims?.sub;
+      const data = insertRecruitingProfileSchema.parse({
+        ...req.body,
+        userId: userId || req.body.userId
+      });
       const profile = await storage.createRecruitingProfile(data);
       res.status(201).json(profile);
     } catch (error) {

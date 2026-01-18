@@ -47,6 +47,7 @@ export type Contact = typeof contacts.$inferSelect;
 export const reminders = pgTable("reminders", {
   id: varchar("id", { length: 36 }).primaryKey(),
   coachId: varchar("coach_id", { length: 36 }).notNull(),
+  userId: varchar("user_id", { length: 36 }),
   dueDate: text("due_date").notNull(),
   title: text("title").notNull(),
   notes: text("notes"),
@@ -136,6 +137,7 @@ export type User = typeof users.$inferSelect;
 
 export const recruitingProfiles = pgTable("recruiting_profiles", {
   id: varchar("id", { length: 36 }).primaryKey(),
+  userId: varchar("user_id", { length: 36 }),
   name: text("name").notNull(),
   url: text("url").notNull(),
   icon: text("icon"),
