@@ -71,6 +71,7 @@ export type EmailTemplate = typeof emailTemplates.$inferSelect;
 
 export const gmailSettings = pgTable("gmail_settings", {
   id: varchar("id", { length: 36 }).primaryKey(),
+  userId: varchar("user_id", { length: 36 }),
   email: text("email").notNull(),
   appPassword: text("app_password").notNull(),
   configured: boolean("configured").notNull().default(false),

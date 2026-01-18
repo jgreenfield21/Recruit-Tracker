@@ -64,7 +64,7 @@ export async function syncUserToSupabase(firebaseUser: any) {
     }
 
     if (!existingUser) {
-      // Create new user record
+      // Create new user record using Firebase UID as the id column
       const { error: insertError } = await supabase
         .from('users')
         .insert({
