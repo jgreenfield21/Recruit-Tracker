@@ -625,7 +625,7 @@ app.get("/api/contacts", isAuthenticated, async (req, res) => {
 app.post("/api/contacts", isAuthenticated, async (req: any, res) => {
   try {
     const data = insertContactSchema.parse(req.body);
-    const userId = req.user?.claims?.sub;
+    const userId = req.user?.uid || req.user?.claims?.sub;
     const contact = await storage.createContact({ ...data, userId } as any);
     
     const coach = await storage.getCoach(data.coachId);

@@ -96,9 +96,13 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/contacts", isAuthenticated, async (req, res) => {
+  app.post("/api/contacts", isAuthenticated, async (req: any, res) => {
     try {
-      const data = insertContactSchema.parse(req.body);
+      const userId = req.user?.claims?.sub;
+      const data = insertContactSchema.parse({
+        ...req.body,
+        userId: userId || req.body.userId
+      });
       const contact = await storage.createContact(data);
       
       const coach = await storage.getCoach(data.coachId);
@@ -327,6 +331,7 @@ export async function registerRoutes(
           .replace(/\{\{position\}\}/g, coach.position || "Coach");
 
         try {
+          const userId = req.user?.uid || req.user?.claims?.sub;
           await transporter.sendMail({
             from: settings.email,
             to: coach.email,
@@ -337,6 +342,7 @@ export async function registerRoutes(
 
           await storage.createContact({
             coachId: coach.id,
+            userId: userId, // Pass userId from request context
             date: new Date().toISOString().split("T")[0],
             method: "email",
             subject: personalizedSubject,
