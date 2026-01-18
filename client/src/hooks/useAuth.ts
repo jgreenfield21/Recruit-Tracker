@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useState, useEffect } from "react";
 import { getQueryFn, queryClient } from "@/lib/queryClient";
 import { auth, isFirebaseConfigured, onAuthChange, signInWithGoogle, signOutUser } from "@/lib/firebase";
+import { syncUserToSupabase } from "@/lib/supabaseClient";
 import type { User } from "@shared/schema";
 import type { User as FirebaseUser } from "firebase/auth";
 
@@ -16,6 +17,8 @@ export function useAuth() {
       setFirebaseUser(user);
       setFirebaseLoading(false);
       if (user) {
+        // Sync user to Supabase on login if client is initialized
+        syncUserToSupabase(user).catch(err => console.error("Sync error:", err));
         queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
       }
     });
