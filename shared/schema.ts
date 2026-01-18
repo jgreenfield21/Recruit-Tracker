@@ -33,7 +33,7 @@ export type Coach = typeof coaches.$inferSelect;
 export const contacts = pgTable("contacts", {
   id: varchar("id", { length: 36 }).primaryKey(),
   coachId: varchar("coach_id", { length: 36 }).notNull(),
-  userId: varchar("user_id"), // Add user_id field
+  userId: varchar("user_id", { length: 36 }), // Explicitly match type for storage
   date: text("date").notNull(),
   method: text("method").notNull(),
   subject: text("subject"),
