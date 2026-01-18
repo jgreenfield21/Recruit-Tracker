@@ -159,6 +159,7 @@ async function initializeDatabase() {
       CREATE TABLE IF NOT EXISTS contacts (
         id VARCHAR(36) PRIMARY KEY,
         coach_id VARCHAR(36) NOT NULL,
+        user_id VARCHAR(36),
         date TEXT NOT NULL,
         method TEXT NOT NULL,
         subject TEXT,
@@ -623,7 +624,8 @@ app.get("/api/contacts", isAuthenticated, async (req, res) => {
 app.post("/api/contacts", isAuthenticated, async (req, res) => {
   try {
     const data = insertContactSchema.parse(req.body);
-    const contact = await storage.createContact(data);
+    const userId = req.user.claims.sub;
+    const contact = await storage.createContact({ ...data, userId });
     
     const coach = await storage.getCoach(data.coachId);
     if (coach && coach.status === "not_contacted") {
