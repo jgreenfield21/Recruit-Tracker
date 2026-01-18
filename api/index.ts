@@ -455,6 +455,20 @@ const isAuthenticated = async (req: any, res: Response, next: NextFunction) => {
           picture: decodedToken.picture,
         },
       };
+      
+      // Upsert user in database to ensure they exist for other operations
+      try {
+        await storage.upsertUser({
+          id: decodedToken.uid,
+          email: decodedToken.email || null,
+          firstName: decodedToken.name?.split(' ')[0] || null,
+          lastName: decodedToken.name?.split(' ').slice(1).join(' ') || null,
+          profileImageUrl: decodedToken.picture || null,
+        });
+      } catch (upsertError) {
+        console.error("Failed to upsert user after Firebase login:", upsertError);
+      }
+      
       return next();
     } catch (error) {
       console.error("Firebase token verification failed:", error);
