@@ -503,6 +503,7 @@ app.get("/api/health", async (req, res) => {
         isProduction,
         hasFirebase: isFirebaseConfigured,
         hasDatabaseUrl: Boolean(process.env.DATABASE_URL),
+        hasSupabaseUrl: Boolean(process.env.VITE_SUPABASE_URL),
       }
     });
   } catch (error) {
