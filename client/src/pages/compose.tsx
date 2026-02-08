@@ -38,7 +38,7 @@ import { EmptyState } from "@/components/empty-state";
 import { LoadingState } from "@/components/loading-state";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import type { Coach, EmailTemplate, GmailSettings, ScheduledEmail, RecruitingProfile } from "@shared/schema";
+import type { Coach, EmailTemplate, EmailSettings, ScheduledEmail, RecruitingProfile } from "@shared/schema";
 import {
   Popover,
   PopoverContent,
@@ -103,8 +103,8 @@ export default function Compose() {
     queryKey: ["/api/templates"],
   });
 
-  const { data: gmailSettings, isLoading: loadingSettings } = useQuery<GmailSettings>({
-    queryKey: ["/api/gmail-settings"],
+  const { data: emailSettings, isLoading: loadingSettings } = useQuery<EmailSettings>({
+    queryKey: ["/api/email-settings"],
   });
 
   const { data: scheduledEmails, isLoading: loadingScheduled } = useQuery<ScheduledEmail[]>({
@@ -140,7 +140,7 @@ export default function Compose() {
     onError: (error: any) => {
       toast({
         title: "Failed to send emails",
-        description: error.message || "Please check your Gmail settings.",
+        description: error.message || "Please check your iCloud Mail settings.",
         variant: "destructive",
       });
     },
@@ -185,7 +185,7 @@ export default function Compose() {
   };
 
   const isLoading = loadingCoaches || loadingTemplates || loadingSettings || loadingScheduled;
-  const isGmailConfigured = gmailSettings?.configured;
+  const isEmailConfigured = emailSettings?.configured;
 
   const handleTemplateSelect = (templateId: string) => {
     setSelectedTemplateId(templateId);
@@ -327,12 +327,12 @@ export default function Compose() {
         </p>
       </div>
 
-      {!isGmailConfigured && (
-        <Alert variant="destructive" data-testid="alert-gmail-not-configured">
+      {!isEmailConfigured && (
+        <Alert variant="destructive" data-testid="alert-email-not-configured">
           <AlertCircle className="h-4 w-4" />
-          <AlertTitle>Gmail Not Configured</AlertTitle>
+          <AlertTitle>iCloud Mail Not Configured</AlertTitle>
           <AlertDescription>
-            Please configure your Gmail settings to send emails.{" "}
+            Please configure your iCloud Mail settings to send emails.{" "}
             <a href="/settings" className="underline font-medium">
               Go to Settings
             </a>
@@ -564,7 +564,7 @@ I am reaching out to introduce myself..."
                 <TabsContent value="send-now" className="pt-4">
                   <Button
                     onClick={handleSend}
-                    disabled={!isGmailConfigured || sendMutation.isPending || selectedCoaches.size === 0}
+                    disabled={!isEmailConfigured || sendMutation.isPending || selectedCoaches.size === 0}
                     className="w-full"
                     data-testid="button-send-emails"
                   >

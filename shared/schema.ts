@@ -69,7 +69,7 @@ export const insertEmailTemplateSchema = createInsertSchema(emailTemplates).omit
 export type InsertEmailTemplate = z.infer<typeof insertEmailTemplateSchema>;
 export type EmailTemplate = typeof emailTemplates.$inferSelect;
 
-export const gmailSettings = pgTable("gmail_settings", {
+export const emailSettings = pgTable("gmail_settings", {
   id: varchar("id", { length: 36 }).primaryKey(),
   userId: varchar("user_id", { length: 36 }),
   email: text("email").notNull(),
@@ -77,9 +77,14 @@ export const gmailSettings = pgTable("gmail_settings", {
   configured: boolean("configured").notNull().default(false),
 });
 
-export const insertGmailSettingsSchema = createInsertSchema(gmailSettings).omit({ id: true });
-export type InsertGmailSettings = z.infer<typeof insertGmailSettingsSchema>;
-export type GmailSettings = typeof gmailSettings.$inferSelect;
+export const gmailSettings = emailSettings;
+
+export const insertEmailSettingsSchema = createInsertSchema(emailSettings).omit({ id: true });
+export const insertGmailSettingsSchema = insertEmailSettingsSchema;
+export type InsertEmailSettings = z.infer<typeof insertEmailSettingsSchema>;
+export type InsertGmailSettings = InsertEmailSettings;
+export type EmailSettings = typeof emailSettings.$inferSelect;
+export type GmailSettings = EmailSettings;
 
 export type CoachStatus = "not_contacted" | "contacted" | "awaiting_response" | "follow_up_needed" | "responded";
 

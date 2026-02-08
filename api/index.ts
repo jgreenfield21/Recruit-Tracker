@@ -91,9 +91,9 @@ const gmailSettings = pgTable("gmail_settings", {
   configured: boolean("configured").notNull().default(false),
 });
 
-const insertGmailSettingsSchema = createInsertSchema(gmailSettings).omit({ id: true });
-type InsertGmailSettings = z.infer<typeof insertGmailSettingsSchema>;
-type GmailSettings = typeof gmailSettings.$inferSelect;
+const insertEmailSettingsSchema = createInsertSchema(gmailSettings).omit({ id: true });
+type InsertEmailSettings = z.infer<typeof insertEmailSettingsSchema>;
+type EmailSettings = typeof gmailSettings.$inferSelect;
 
 const scheduledEmails = pgTable("scheduled_emails", {
   id: varchar("id", { length: 36 }).primaryKey(),
@@ -345,13 +345,13 @@ class DatabaseStorage {
     return true;
   }
 
-  async getGmailSettings(): Promise<GmailSettings | undefined> {
+  async getEmailSettings(): Promise<EmailSettings | undefined> {
     const [settings] = await db.select().from(gmailSettings);
     return settings;
   }
 
-  async saveGmailSettings(settings: InsertGmailSettings): Promise<GmailSettings> {
-    const existing = await this.getGmailSettings();
+  async saveEmailSettings(settings: InsertEmailSettings): Promise<EmailSettings> {
+    const existing = await this.getEmailSettings();
     if (existing) {
       const [updated] = await db.update(gmailSettings).set(settings).where(eq(gmailSettings.id, existing.id)).returning();
       return updated;
@@ -770,9 +770,9 @@ app.delete("/api/templates/:id", isAuthenticated, async (req, res) => {
   }
 });
 
-app.get("/api/gmail-settings", isAuthenticated, async (req, res) => {
+app.get("/api/email-settings", isAuthenticated, async (req, res) => {
   try {
-    const settings = await storage.getGmailSettings();
+    const settings = await storage.getEmailSettings();
     if (!settings) {
       return res.json({ configured: false });
     }
@@ -786,14 +786,14 @@ app.get("/api/gmail-settings", isAuthenticated, async (req, res) => {
   }
 });
 
-app.post("/api/gmail-settings", isAuthenticated, async (req: any, res) => {
+app.post("/api/email-settings", isAuthenticated, async (req: any, res) => {
   try {
     const userId = req.user?.uid || req.user?.claims?.sub;
-    const data = insertGmailSettingsSchema.parse({
+    const data = insertEmailSettingsSchema.parse({
       ...req.body,
       userId: userId || req.body.userId
     });
-    const settings = await storage.saveGmailSettings(data);
+    const settings = await storage.saveEmailSettings(data);
     res.json({
       id: settings.id,
       email: settings.email,
@@ -807,10 +807,10 @@ app.post("/api/gmail-settings", isAuthenticated, async (req: any, res) => {
   }
 });
 
-app.post("/api/test-gmail", isAuthenticated, async (req, res) => {
+app.post("/api/test-email", isAuthenticated, async (req, res) => {
   try {
-    const settings = await storage.getGmailSettings();
-    console.log("[test-gmail] Settings loaded:", settings ? { email: settings.email, configured: settings.configured } : "none");
+    const settings = await storage.getEmailSettings();
+    console.log("[test-email] Settings loaded:", settings ? { email: settings.email, configured: settings.configured } : "none");
     if (!settings || !settings.configured) {
       return res.status(400).json({ error: "Email not configured. Please save your iCloud Mail settings first." });
     }
@@ -826,13 +826,29 @@ app.post("/api/test-gmail", isAuthenticated, async (req, res) => {
       },
     });
 
-    console.log("[test-gmail] Verifying SMTP connection...");
+    console.log("[test-email] Verifying SMTP connection...");
     await transporter.verify();
-    console.log("[test-gmail] SMTP verified successfully");
+    console.log("[test-email] SMTP connection verified, sending test email...");
+
+    await transporter.sendMail({
+      from: settings.email,
+      to: settings.email,
+      subject: "RecruitTrack - Test Email",
+      text: "This is a test email from RecruitTrack. Your iCloud Mail integration is working correctly!",
+    });
+    console.log("[test-email] Test email sent successfully to " + settings.email);
     res.json({ success: true });
   } catch (error: any) {
-    console.error("[test-gmail] Failed:", error.message);
-    res.status(400).json({ error: error.message || "Failed to connect to iCloud Mail" });
+    console.error("[test-email] Failed:", error.code, error.message, error.response);
+    let userMessage = error.message || "Failed to connect to iCloud Mail";
+    if (error.code === "EAUTH" || error.responseCode === 535) {
+      userMessage = "Authentication failed. Please check your iCloud email and app-specific password.";
+    } else if (error.code === "ESOCKET" || error.code === "ECONNECTION") {
+      userMessage = "Could not connect to iCloud Mail server. Please check your network connection.";
+    } else if (error.code === "ETIMEDOUT") {
+      userMessage = "Connection timed out. The mail server may be temporarily unavailable.";
+    }
+    res.status(400).json({ error: userMessage });
   }
 });
 
@@ -940,7 +956,7 @@ app.post("/api/send-emails", isAuthenticated, async (req, res) => {
       return res.status(400).json({ error: "No coaches selected" });
     }
 
-    const settings = await storage.getGmailSettings();
+    const settings = await storage.getEmailSettings();
     if (!settings || !settings.configured) {
       return res.status(400).json({ error: "Email not configured" });
     }

@@ -2,7 +2,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import nodemailer from "nodemailer";
-import { insertCoachSchema, insertContactSchema, insertReminderSchema, insertEmailTemplateSchema, insertGmailSettingsSchema, insertScheduledEmailSchema, insertRecruitingProfileSchema } from "@shared/schema";
+import { insertCoachSchema, insertContactSchema, insertReminderSchema, insertEmailTemplateSchema, insertEmailSettingsSchema, insertScheduledEmailSchema, insertRecruitingProfileSchema } from "@shared/schema";
 import { z } from "zod";
 import { setupAuth, isAuthenticated } from "./replitAuth";
 
@@ -225,40 +225,40 @@ export async function registerRoutes(
     }
   });
 
-  // Gmail Settings
-  app.get("/api/gmail-settings", isAuthenticated, async (req, res) => {
+  // iCloud Mail Settings
+  app.get("/api/email-settings", isAuthenticated, async (req, res) => {
     try {
-      const settings = await storage.getGmailSettings();
+      const settings = await storage.getEmailSettings();
       if (!settings) {
         return res.json({ configured: false });
       }
       res.json({ id: settings.id, email: settings.email, configured: settings.configured });
     } catch (error) {
-      res.status(500).json({ error: "Failed to fetch Gmail settings" });
+      res.status(500).json({ error: "Failed to fetch email settings" });
     }
   });
 
-  app.post("/api/gmail-settings", isAuthenticated, async (req: any, res) => {
+  app.post("/api/email-settings", isAuthenticated, async (req: any, res) => {
     try {
       const userId = (req.user as any)?.uid || (req.user as any)?.claims?.sub;
-      const data = insertGmailSettingsSchema.parse({
+      const data = insertEmailSettingsSchema.parse({
         ...req.body,
         userId: userId || req.body.userId
       });
-      const settings = await storage.saveGmailSettings(data);
+      const settings = await storage.saveEmailSettings(data);
       res.json({ id: settings.id, email: settings.email, configured: settings.configured });
     } catch (error) {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ error: error.errors });
       }
-      res.status(500).json({ error: "Failed to save Gmail settings" });
+      res.status(500).json({ error: "Failed to save email settings" });
     }
   });
 
-  app.post("/api/test-gmail", isAuthenticated, async (req, res) => {
+  app.post("/api/test-email", isAuthenticated, async (req, res) => {
     try {
-      const settings = await storage.getGmailSettings();
-      console.log("[test-gmail] Settings loaded:", settings ? { email: settings.email, configured: settings.configured } : "none");
+      const settings = await storage.getEmailSettings();
+      console.log("[test-email] Settings loaded:", settings ? { email: settings.email, configured: settings.configured } : "none");
       if (!settings || !settings.configured) {
         return res.status(400).json({ error: "Email not configured. Please save your iCloud Mail settings first." });
       }
@@ -274,13 +274,29 @@ export async function registerRoutes(
         },
       });
 
-      console.log("[test-gmail] Verifying SMTP connection to smtp.mail.me.com:587...");
+      console.log("[test-email] Verifying SMTP connection to smtp.mail.me.com:587...");
       await transporter.verify();
-      console.log("[test-gmail] SMTP connection verified successfully");
+      console.log("[test-email] SMTP connection verified, sending test email...");
+
+      await transporter.sendMail({
+        from: settings.email,
+        to: settings.email,
+        subject: "RecruitTrack - Test Email",
+        text: "This is a test email from RecruitTrack. Your iCloud Mail integration is working correctly!",
+      });
+      console.log("[test-email] Test email sent successfully to " + settings.email);
       res.json({ success: true });
     } catch (error: any) {
-      console.error("[test-gmail] SMTP connection failed:", error.message);
-      res.status(400).json({ error: error.message || "Failed to connect to iCloud Mail" });
+      console.error("[test-email] Failed:", error.code, error.message, error.response);
+      let userMessage = error.message || "Failed to connect to iCloud Mail";
+      if (error.code === "EAUTH" || error.responseCode === 535) {
+        userMessage = "Authentication failed. Please check your iCloud email and app-specific password.";
+      } else if (error.code === "ESOCKET" || error.code === "ECONNECTION") {
+        userMessage = "Could not connect to iCloud Mail server. Please check your network connection.";
+      } else if (error.code === "ETIMEDOUT") {
+        userMessage = "Connection timed out. The mail server may be temporarily unavailable.";
+      }
+      res.status(400).json({ error: userMessage });
     }
   });
 
@@ -293,7 +309,7 @@ export async function registerRoutes(
         return res.status(400).json({ error: "No coaches selected" });
       }
 
-      const settings = await storage.getGmailSettings();
+      const settings = await storage.getEmailSettings();
       console.log("[send-emails] Settings loaded:", settings ? { email: settings.email, configured: settings.configured } : "none");
       if (!settings || !settings.configured) {
         return res.status(400).json({ error: "Email not configured. Please set up your iCloud Mail settings first." });
@@ -372,8 +388,12 @@ export async function registerRoutes(
 
           results.push({ coachId: coach.id, success: true });
         } catch (error: any) {
-          console.error(`[send-emails] Failed to send to ${coach.email}:`, error.message);
-          results.push({ coachId: coach.id, success: false, error: error.message });
+          console.error(`[send-emails] Failed to send to ${coach.email}:`, error.code, error.message, error.response);
+          let errorMsg = error.message;
+          if (error.code === "EAUTH" || error.responseCode === 535) {
+            errorMsg = "Authentication failed. Check your iCloud email and app password.";
+          }
+          results.push({ coachId: coach.id, success: false, error: errorMsg });
         }
       }
 
@@ -500,7 +520,7 @@ export async function registerRoutes(
   const processScheduledEmails = async () => {
     try {
       const pendingEmails = await storage.getPendingScheduledEmails();
-      const settings = await storage.getGmailSettings();
+      const settings = await storage.getEmailSettings();
       
       if (!settings || !settings.configured || pendingEmails.length === 0) {
         return;

@@ -23,20 +23,20 @@ Preferred communication style: Simple, everyday language.
 - **Runtime**: Node.js with Express.js
 - **Language**: TypeScript compiled with tsx
 - **API Design**: RESTful JSON API with routes prefixed at `/api/`
-- **Email Integration**: Nodemailer for SMTP email sending via Gmail app passwords
+- **Email Integration**: Nodemailer for SMTP email sending via iCloud Mail app passwords (smtp.mail.me.com:587)
 
 ### Data Layer
 - **ORM**: Drizzle ORM with PostgreSQL dialect
 - **Schema Location**: `shared/schema.ts` contains all table definitions
 - **Validation**: Drizzle-Zod generates Zod schemas from database tables for type-safe validation
-- **Current Storage**: In-memory storage implementation (`MemStorage` class) with interface designed for database migration
+- **Current Storage**: PostgreSQL database via Drizzle ORM (`DatabaseStorage` class)
 
 ### Core Data Models
 - **Coaches**: Contact information, school, position, division, status tracking
 - **Contacts**: Communication log entries linked to coaches
 - **Reminders**: Follow-up tasks with due dates and completion status
 - **Email Templates**: Reusable email templates with merge field support ({{coach_name}}, {{school}}, etc.)
-- **Gmail Settings**: iCloud Mail SMTP configuration (smtp.mail.me.com:587) for email sending
+- **Email Settings**: iCloud Mail SMTP configuration (smtp.mail.me.com:587) for email sending
 - **Recruiting Profiles**: User's profile links (NCSA, Hudl, MaxPreps, etc.) for quick insertion into emails
 
 ### Project Structure

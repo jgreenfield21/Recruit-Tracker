@@ -38,7 +38,7 @@ import { LoadingState } from "@/components/loading-state";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useNotifications } from "@/hooks/use-notifications";
-import type { GmailSettings, RecruitingProfile } from "@shared/schema";
+import type { EmailSettings, RecruitingProfile } from "@shared/schema";
 import { profilePlatformOptions } from "@shared/schema";
 import {
   Select,
@@ -79,8 +79,8 @@ export default function Settings() {
   const { toast } = useToast();
   const { permission, isSupported, requestPermission, showNotification } = useNotifications();
 
-  const { data: settings, isLoading } = useQuery<GmailSettings>({
-    queryKey: ["/api/gmail-settings"],
+  const { data: settings, isLoading } = useQuery<EmailSettings>({
+    queryKey: ["/api/email-settings"],
   });
 
   const { data: profiles, isLoading: loadingProfiles } = useQuery<RecruitingProfile[]>({
@@ -146,13 +146,13 @@ export default function Settings() {
 
   const mutation = useMutation({
     mutationFn: (data: FormData) =>
-      apiRequest("POST", "/api/gmail-settings", {
+      apiRequest("POST", "/api/email-settings", {
         email: data.email,
         appPassword: data.appPassword,
         configured: true,
       }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/gmail-settings"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/email-settings"] });
       toast({ title: "iCloud Mail settings saved successfully" });
       form.reset({ email: form.getValues("email"), appPassword: "" });
     },
@@ -162,7 +162,7 @@ export default function Settings() {
   });
 
   const testMutation = useMutation({
-    mutationFn: () => apiRequest("POST", "/api/test-gmail"),
+    mutationFn: () => apiRequest("POST", "/api/test-email"),
     onSuccess: () => {
       toast({ title: "iCloud Mail connection successful!" });
     },
@@ -192,7 +192,7 @@ export default function Settings() {
         </p>
       </div>
 
-      <Card data-testid="card-gmail-settings">
+      <Card data-testid="card-email-settings">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Mail className="h-5 w-5" />
@@ -204,7 +204,7 @@ export default function Settings() {
         </CardHeader>
         <CardContent className="space-y-6">
           {settings?.configured ? (
-            <Alert data-testid="alert-gmail-connected">
+            <Alert data-testid="alert-email-connected">
               <Check className="h-4 w-4" />
               <AlertTitle>Connected</AlertTitle>
               <AlertDescription>
@@ -212,7 +212,7 @@ export default function Settings() {
               </AlertDescription>
             </Alert>
           ) : (
-            <Alert data-testid="alert-gmail-not-connected">
+            <Alert data-testid="alert-email-not-connected">
               <AlertCircle className="h-4 w-4" />
               <AlertTitle>Not Connected</AlertTitle>
               <AlertDescription>
@@ -256,7 +256,7 @@ export default function Settings() {
                         type="email"
                         placeholder="your.email@icloud.com"
                         {...field}
-                        data-testid="input-gmail-email"
+                        data-testid="input-email-address"
                       />
                     </FormControl>
                     <FormDescription>
@@ -279,7 +279,7 @@ export default function Settings() {
                           type={showPassword ? "text" : "password"}
                           placeholder="xxxx-xxxx-xxxx-xxxx"
                           {...field}
-                          data-testid="input-gmail-password"
+                          data-testid="input-email-password"
                         />
                         <Button
                           type="button"
@@ -308,7 +308,7 @@ export default function Settings() {
                 <Button
                   type="submit"
                   disabled={mutation.isPending}
-                  data-testid="button-save-gmail-settings"
+                  data-testid="button-save-email-settings"
                 >
                   {mutation.isPending && (
                     <Loader2 className="h-4 w-4 mr-2 animate-spin" />
@@ -321,7 +321,7 @@ export default function Settings() {
                     variant="outline"
                     onClick={() => testMutation.mutate()}
                     disabled={testMutation.isPending}
-                    data-testid="button-test-gmail"
+                    data-testid="button-test-email"
                   >
                     {testMutation.isPending && (
                       <Loader2 className="h-4 w-4 mr-2 animate-spin" />
