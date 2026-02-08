@@ -1014,16 +1014,24 @@ app.post("/api/send-emails", isAuthenticated, async (req, res) => {
 
         await transporter.sendMail(mailOptions);
 
-        await storage.createContact({
-          coachId,
-          date: new Date().toISOString().split("T")[0],
-          method: "email",
-          subject: personalizedSubject,
-          notes: `Sent via RecruitTrack`,
-        });
+        try {
+          await storage.createContact({
+            coachId,
+            date: new Date().toISOString().split("T")[0],
+            method: "email",
+            subject: personalizedSubject,
+            notes: `Sent via RecruitTrack`,
+          });
+        } catch (logError: any) {
+          console.error(`[send-emails] Failed to log contact:`, logError.message);
+        }
 
-        if (coach.status === "not_contacted") {
-          await storage.updateCoach(coachId, { status: "contacted" });
+        try {
+          if (coach.status === "not_contacted") {
+            await storage.updateCoach(coachId, { status: "contacted" });
+          }
+        } catch (statusError: any) {
+          console.error(`[send-emails] Failed to update status:`, statusError.message);
         }
 
         results.success.push(coachId);

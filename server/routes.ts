@@ -373,17 +373,25 @@ export async function registerRoutes(
           });
           console.log(`[send-emails] Successfully sent to ${coach.email}`);
 
-          await storage.createContact({
-            coachId: coach.id,
-            userId: userId,
-            date: new Date().toISOString().split("T")[0],
-            method: "email",
-            subject: personalizedSubject,
-            notes: "Sent via RecruitTrack",
-          });
+          try {
+            await storage.createContact({
+              coachId: coach.id,
+              userId: userId,
+              date: new Date().toISOString().split("T")[0],
+              method: "email",
+              subject: personalizedSubject,
+              notes: "Sent via RecruitTrack",
+            });
+          } catch (logError: any) {
+            console.error(`[send-emails] Failed to log contact for ${coach.email}:`, logError.message);
+          }
 
-          if (coach.status === "not_contacted") {
-            await storage.updateCoach(coach.id, { status: "awaiting_response" });
+          try {
+            if (coach.status === "not_contacted") {
+              await storage.updateCoach(coach.id, { status: "awaiting_response" });
+            }
+          } catch (statusError: any) {
+            console.error(`[send-emails] Failed to update coach status:`, statusError.message);
           }
 
           results.push({ coachId: coach.id, success: true });
@@ -565,16 +573,24 @@ export async function registerRoutes(
               text: personalizedBody,
             });
 
-            await storage.createContact({
-              coachId: coach.id,
-              date: new Date().toISOString().split("T")[0],
-              method: "email",
-              subject: personalizedSubject,
-              notes: "Sent via RecruitTrack (scheduled)",
-            });
+            try {
+              await storage.createContact({
+                coachId: coach.id,
+                date: new Date().toISOString().split("T")[0],
+                method: "email",
+                subject: personalizedSubject,
+                notes: "Sent via RecruitTrack (scheduled)",
+              });
+            } catch (logError: any) {
+              console.error(`[scheduled-emails] Failed to log contact:`, logError.message);
+            }
 
-            if (coach.status === "not_contacted") {
-              await storage.updateCoach(coach.id, { status: "awaiting_response" });
+            try {
+              if (coach.status === "not_contacted") {
+                await storage.updateCoach(coach.id, { status: "awaiting_response" });
+              }
+            } catch (statusError: any) {
+              console.error(`[scheduled-emails] Failed to update status:`, statusError.message);
             }
           } catch {
             allSuccess = false;
