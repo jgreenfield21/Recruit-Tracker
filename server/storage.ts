@@ -237,6 +237,7 @@ Best regards,
     const newContact: Contact = {
       id,
       coachId: contact.coachId,
+      userId: contact.userId ?? null,
       date: contact.date,
       method: contact.method,
       subject: contact.subject ?? null,
@@ -264,6 +265,7 @@ Best regards,
     const newReminder: Reminder = {
       id,
       coachId: reminder.coachId,
+      userId: reminder.userId ?? null,
       dueDate: reminder.dueDate,
       title: reminder.title,
       notes: reminder.notes ?? null,
@@ -320,7 +322,14 @@ Best regards,
 
   async saveGmailSettings(settings: InsertGmailSettings): Promise<GmailSettings> {
     const id = this.gmailSettings?.id || randomUUID();
-    this.gmailSettings = { ...settings, id, configured: settings.configured || false };
+    const saved: GmailSettings = {
+      id,
+      userId: settings.userId ?? null,
+      email: settings.email,
+      appPassword: settings.appPassword,
+      configured: settings.configured ?? false,
+    };
+    this.gmailSettings = saved;
     return this.gmailSettings;
   }
 
@@ -366,6 +375,7 @@ Best regards,
     const id = randomUUID();
     const newProfile: RecruitingProfile = {
       id,
+      userId: profile.userId ?? null,
       name: profile.name,
       url: profile.url,
       icon: profile.icon ?? null,

@@ -258,29 +258,34 @@ export async function registerRoutes(
   app.post("/api/test-gmail", isAuthenticated, async (req, res) => {
     try {
       const settings = await storage.getGmailSettings();
+      console.log("[test-gmail] Settings loaded:", settings ? { email: settings.email, configured: settings.configured } : "none");
       if (!settings || !settings.configured) {
-        return res.status(400).json({ error: "Gmail not configured" });
+        return res.status(400).json({ error: "Email not configured. Please save your iCloud Mail settings first." });
       }
 
       const transporter = nodemailer.createTransport({
         host: "smtp.mail.me.com",
         port: 587,
         secure: false,
+        requireTLS: true,
         auth: {
           user: settings.email,
           pass: settings.appPassword,
         },
       });
 
+      console.log("[test-gmail] Verifying SMTP connection to smtp.mail.me.com:587...");
       await transporter.verify();
+      console.log("[test-gmail] SMTP connection verified successfully");
       res.json({ success: true });
     } catch (error: any) {
-      res.status(400).json({ error: error.message || "Failed to connect to Gmail" });
+      console.error("[test-gmail] SMTP connection failed:", error.message);
+      res.status(400).json({ error: error.message || "Failed to connect to iCloud Mail" });
     }
   });
 
   // Send Emails
-  app.post("/api/send-emails", isAuthenticated, async (req, res) => {
+  app.post("/api/send-emails", isAuthenticated, async (req: any, res) => {
     try {
       const { coachIds, subject, body, attachments } = req.body;
 
@@ -289,14 +294,16 @@ export async function registerRoutes(
       }
 
       const settings = await storage.getGmailSettings();
+      console.log("[send-emails] Settings loaded:", settings ? { email: settings.email, configured: settings.configured } : "none");
       if (!settings || !settings.configured) {
-        return res.status(400).json({ error: "Gmail not configured" });
+        return res.status(400).json({ error: "Email not configured. Please set up your iCloud Mail settings first." });
       }
 
       const transporter = nodemailer.createTransport({
         host: "smtp.mail.me.com",
         port: 587,
         secure: false,
+        requireTLS: true,
         auth: {
           user: settings.email,
           pass: settings.appPassword,
@@ -339,7 +346,8 @@ export async function registerRoutes(
           .replace(/\{\{position\}\}/g, coach.position || "Coach");
 
         try {
-          const userId = (req.user as any)?.uid || (req.user as any)?.claims?.sub;
+          const userId = (req as any).user?.uid || (req as any).user?.claims?.sub;
+          console.log(`[send-emails] Sending to ${coach.email} (${coach.name})...`);
           await transporter.sendMail({
             from: settings.email,
             to: coach.email,
@@ -347,10 +355,11 @@ export async function registerRoutes(
             text: personalizedBody,
             attachments: mailAttachments,
           });
+          console.log(`[send-emails] Successfully sent to ${coach.email}`);
 
           await storage.createContact({
             coachId: coach.id,
-            userId: userId, // Pass userId from request context
+            userId: userId,
             date: new Date().toISOString().split("T")[0],
             method: "email",
             subject: personalizedSubject,
@@ -363,6 +372,7 @@ export async function registerRoutes(
 
           results.push({ coachId: coach.id, success: true });
         } catch (error: any) {
+          console.error(`[send-emails] Failed to send to ${coach.email}:`, error.message);
           results.push({ coachId: coach.id, success: false, error: error.message });
         }
       }
@@ -500,6 +510,7 @@ export async function registerRoutes(
         host: "smtp.mail.me.com",
         port: 587,
         secure: false,
+        requireTLS: true,
         auth: {
           user: settings.email,
           pass: settings.appPassword,

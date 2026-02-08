@@ -810,24 +810,29 @@ app.post("/api/gmail-settings", isAuthenticated, async (req: any, res) => {
 app.post("/api/test-gmail", isAuthenticated, async (req, res) => {
   try {
     const settings = await storage.getGmailSettings();
+    console.log("[test-gmail] Settings loaded:", settings ? { email: settings.email, configured: settings.configured } : "none");
     if (!settings || !settings.configured) {
-      return res.status(400).json({ error: "Email not configured" });
+      return res.status(400).json({ error: "Email not configured. Please save your iCloud Mail settings first." });
     }
 
     const transporter = nodemailer.createTransport({
       host: "smtp.mail.me.com",
       port: 587,
       secure: false,
+      requireTLS: true,
       auth: {
         user: settings.email,
         pass: settings.appPassword,
       },
     });
 
+    console.log("[test-gmail] Verifying SMTP connection...");
     await transporter.verify();
+    console.log("[test-gmail] SMTP verified successfully");
     res.json({ success: true });
   } catch (error: any) {
-    res.status(400).json({ error: error.message || "Failed to connect" });
+    console.error("[test-gmail] Failed:", error.message);
+    res.status(400).json({ error: error.message || "Failed to connect to iCloud Mail" });
   }
 });
 
@@ -944,6 +949,7 @@ app.post("/api/send-emails", isAuthenticated, async (req, res) => {
       host: "smtp.mail.me.com",
       port: 587,
       secure: false,
+      requireTLS: true,
       auth: {
         user: settings.email,
         pass: settings.appPassword,
