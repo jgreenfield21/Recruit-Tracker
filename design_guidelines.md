@@ -1,4 +1,4 @@
-# Design Guidelines: Volleyball Recruiting Contact Tracker
+# Design Guidelines: Sports Recruiting Contact Tracker
 
 ## Design Approach
 **System Selected**: Linear-inspired productivity design

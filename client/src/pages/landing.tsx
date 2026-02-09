@@ -34,7 +34,7 @@ export default function Landing() {
       <main className="container mx-auto px-4 py-12 max-w-5xl">
         <div className="text-center mb-12">
           <h2 className="text-4xl font-bold mb-4">
-            Manage Your Volleyball Recruiting Journey
+            Manage Your Recruiting Journey
           </h2>
           <p className="text-lg text-muted-foreground max-w-2xl mx-auto mb-8">
             Track college coaches, send personalized emails, set reminders, and stay organized 

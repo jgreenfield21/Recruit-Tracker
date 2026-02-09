@@ -547,7 +547,7 @@ export default function Settings() {
         </CardHeader>
         <CardContent>
           <p className="text-sm text-muted-foreground">
-            RecruitTrack helps volleyball recruits manage their college coach contacts,
+            RecruitTrack helps student-athletes manage their college coach contacts,
             track communications, and streamline the recruiting process. Built to make
             your recruiting journey more organized and efficient.
           </p>

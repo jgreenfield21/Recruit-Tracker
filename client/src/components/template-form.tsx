@@ -111,7 +111,7 @@ export function TemplateForm({ template, onSuccess }: TemplateFormProps) {
               <FormLabel>Email Subject *</FormLabel>
               <FormControl>
                 <Input
-                  placeholder="Introduction - Class of 2026 Volleyball Recruit"
+                  placeholder="Introduction - Class of 2026 Recruit"
                   {...field}
                   data-testid="input-template-subject"
                 />
@@ -152,7 +152,7 @@ export function TemplateForm({ template, onSuccess }: TemplateFormProps) {
                 <Textarea
                   placeholder="Dear {{salutation}},
 
-I am reaching out to introduce myself as a volleyball player interested in {{school}}..."
+I am reaching out to introduce myself as a student-athlete interested in {{school}}..."
                   rows={12}
                   className="font-mono text-sm"
                   {...field}

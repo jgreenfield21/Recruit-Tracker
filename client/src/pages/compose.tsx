@@ -518,7 +518,7 @@ export default function Compose() {
                 <Label htmlFor="subject">Subject *</Label>
                 <Input
                   id="subject"
-                  placeholder="Introduction - Class of 2026 Volleyball Recruit"
+                  placeholder="Introduction - Class of 2026 Recruit"
                   value={subject}
                   onChange={(e) => setSubject(e.target.value)}
                   data-testid="input-email-subject"

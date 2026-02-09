@@ -43,7 +43,7 @@ export function AppSidebar() {
           </div>
           <div className="flex flex-col">
             <span className="text-sm font-semibold" data-testid="text-app-title">RecruitTrack</span>
-            <span className="text-xs text-muted-foreground">Volleyball Recruiting</span>
+            <span className="text-xs text-muted-foreground">Sports Recruiting</span>
           </div>
         </div>
       </SidebarHeader>

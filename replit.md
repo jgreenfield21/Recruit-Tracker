@@ -1,8 +1,8 @@
-# RecruitTrack - Volleyball Recruiting Contact Manager
+# RecruitTrack - Sports Recruiting Contact Manager
 
 ## Overview
 
-RecruitTrack is a productivity web application designed for volleyball players to manage their college recruiting process. The application helps users track college coach contacts, send personalized emails using templates with merge fields, set follow-up reminders, and log all communication history. It follows a Linear-inspired clean, modern aesthetic focused on efficient data management and streamlined workflows.
+RecruitTrack is a productivity web application designed for student-athletes to manage their college recruiting process. The application helps users track college coach contacts, send personalized emails using templates with merge fields, set follow-up reminders, and log all communication history. It follows a Linear-inspired clean, modern aesthetic focused on efficient data management and streamlined workflows.
 
 ## User Preferences
 
