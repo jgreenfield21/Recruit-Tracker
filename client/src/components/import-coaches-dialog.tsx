@@ -192,13 +192,31 @@ export function ImportCoachesDialog({ open, onOpenChange }: ImportCoachesDialogP
   const [parsedCoaches, setParsedCoaches] = useState<ParsedCoach[]>([]);
   const [importResults, setImportResults] = useState<ImportResult[] | null>(null);
   const [step, setStep] = useState<"input" | "preview" | "results">("input");
+  const [importProgress, setImportProgress] = useState<{ current: number; total: number } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
 
+  const BATCH_SIZE = 100;
+
   const importMutation = useMutation({
     mutationFn: async (coaches: ParsedCoach[]) => {
-      const res = await apiRequest("POST", "/api/coaches/import", { coaches });
-      return res.json();
+      const allResults: ImportResult[] = [];
+      let totalImported = 0;
+      let totalFailed = 0;
+      const totalCoaches = coaches.length;
+
+      for (let i = 0; i < totalCoaches; i += BATCH_SIZE) {
+        const batch = coaches.slice(i, i + BATCH_SIZE);
+        setImportProgress({ current: Math.min(i + BATCH_SIZE, totalCoaches), total: totalCoaches });
+        const res = await apiRequest("POST", "/api/coaches/import", { coaches: batch });
+        const data = await res.json();
+        totalImported += data.imported;
+        totalFailed += data.failed;
+        allResults.push(...data.results);
+      }
+
+      setImportProgress(null);
+      return { imported: totalImported, failed: totalFailed, results: allResults };
     },
     onSuccess: (data: { imported: number; failed: number; results: ImportResult[] }) => {
       queryClient.invalidateQueries({ queryKey: ["/api/coaches"] });
@@ -214,6 +232,7 @@ export function ImportCoachesDialog({ open, onOpenChange }: ImportCoachesDialogP
       }
     },
     onError: () => {
+      setImportProgress(null);
       toast({ title: "Failed to import coaches", variant: "destructive" });
     },
   });
@@ -418,7 +437,9 @@ export function ImportCoachesDialog({ open, onOpenChange }: ImportCoachesDialogP
                 {importMutation.isPending ? (
                   <>
                     <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    Importing...
+                    {importProgress
+                      ? `Importing ${importProgress.current} of ${importProgress.total}...`
+                      : "Importing..."}
                   </>
                 ) : (
                   <>
