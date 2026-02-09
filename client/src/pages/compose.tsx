@@ -11,6 +11,7 @@ import {
   Calendar,
   X,
   AlertCircle,
+  Search,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -39,6 +40,7 @@ import { LoadingState } from "@/components/loading-state";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { Coach, EmailTemplate, EmailSettings, ScheduledEmail, RecruitingProfile } from "@shared/schema";
+import { divisionOptions } from "@shared/schema";
 import {
   Popover,
   PopoverContent,
@@ -61,6 +63,8 @@ export default function Compose() {
   const [scheduledDate, setScheduledDate] = useState("");
   const [scheduledTime, setScheduledTime] = useState("");
   const [attachments, setAttachments] = useState<AttachmentFile[]>([]);
+  const [coachSearch, setCoachSearch] = useState("");
+  const [divisionFilter, setDivisionFilter] = useState("all");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
 
@@ -114,6 +118,23 @@ export default function Compose() {
   const { data: profiles } = useQuery<RecruitingProfile[]>({
     queryKey: ["/api/recruiting-profiles"],
   });
+
+  const filteredCoaches = useMemo(() => {
+    if (!coaches) return [];
+    return coaches.filter((coach) => {
+      if (divisionFilter !== "all" && coach.division !== divisionFilter) return false;
+      if (coachSearch.trim()) {
+        const q = coachSearch.toLowerCase();
+        return (
+          coach.name.toLowerCase().includes(q) ||
+          coach.school.toLowerCase().includes(q) ||
+          coach.email.toLowerCase().includes(q) ||
+          (coach.position && coach.position.toLowerCase().includes(q))
+        );
+      }
+      return true;
+    });
+  }, [coaches, coachSearch, divisionFilter]);
 
   const insertProfileLink = (profile: RecruitingProfile) => {
     const linkText = `[${profile.name}](${profile.url})`;
@@ -224,10 +245,16 @@ export default function Compose() {
   };
 
   const handleSelectAll = () => {
-    if (selectedCoaches.size === coaches?.length) {
-      setSelectedCoaches(new Set());
+    const filteredIds = filteredCoaches.map((c) => c.id);
+    const allFilteredSelected = filteredIds.every((id) => selectedCoaches.has(id));
+    if (allFilteredSelected) {
+      const newSelected = new Set(selectedCoaches);
+      filteredIds.forEach((id) => newSelected.delete(id));
+      setSelectedCoaches(newSelected);
     } else {
-      setSelectedCoaches(new Set(coaches?.map((c) => c.id) || []));
+      const newSelected = new Set(selectedCoaches);
+      filteredIds.forEach((id) => newSelected.add(id));
+      setSelectedCoaches(newSelected);
     }
   };
 
@@ -378,42 +405,81 @@ export default function Compose() {
                 />
               ) : (
                 <>
-                  <div className="flex items-center gap-2 mb-4">
-                    <Checkbox
-                      id="select-all"
-                      checked={selectedCoaches.size === coaches.length}
-                      onCheckedChange={handleSelectAll}
-                      data-testid="checkbox-select-all"
-                    />
-                    <Label htmlFor="select-all" className="text-sm font-medium">
-                      Select All ({coaches.length})
-                    </Label>
+                  <div className="flex items-center gap-2 mb-3">
+                    <div className="relative flex-1">
+                      <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                      <Input
+                        placeholder="Search by name, school, email..."
+                        value={coachSearch}
+                        onChange={(e) => setCoachSearch(e.target.value)}
+                        className="pl-9"
+                        data-testid="input-coach-search"
+                      />
+                    </div>
+                    <Select value={divisionFilter} onValueChange={setDivisionFilter}>
+                      <SelectTrigger className="w-[140px]" data-testid="select-division-filter">
+                        <SelectValue placeholder="Division" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Divisions</SelectItem>
+                        {divisionOptions.map((d) => (
+                          <SelectItem key={d.value} value={d.value}>{d.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="flex items-center justify-between gap-2 mb-2">
+                    <div className="flex items-center gap-2">
+                      <Checkbox
+                        id="select-all"
+                        checked={filteredCoaches.length > 0 && filteredCoaches.every((c) => selectedCoaches.has(c.id))}
+                        onCheckedChange={handleSelectAll}
+                        data-testid="checkbox-select-all"
+                      />
+                      <Label htmlFor="select-all" className="text-sm font-medium">
+                        Select All ({filteredCoaches.length})
+                      </Label>
+                    </div>
+                    {selectedCoaches.size > 0 && (
+                      <span className="text-xs text-muted-foreground" data-testid="text-selected-count">
+                        {selectedCoaches.size} total selected
+                      </span>
+                    )}
                   </div>
                   <ScrollArea className="h-[200px]">
-                    <div className="space-y-2">
-                      {coaches.map((coach) => (
-                        <div
-                          key={coach.id}
-                          className="flex items-center gap-3 p-2 rounded-md hover-elevate"
-                          data-testid={`coach-recipient-${coach.id}`}
-                        >
-                          <Checkbox
-                            id={`coach-${coach.id}`}
-                            checked={selectedCoaches.has(coach.id)}
-                            onCheckedChange={() => handleCoachToggle(coach.id)}
-                            data-testid={`checkbox-coach-${coach.id}`}
-                          />
-                          <Label
-                            htmlFor={`coach-${coach.id}`}
-                            className="flex-1 cursor-pointer"
-                          >
-                            <div className="font-medium text-sm">{coach.name}</div>
-                            <div className="text-xs text-muted-foreground">
-                              {coach.school} - {coach.email}
-                            </div>
-                          </Label>
+                    <div className="space-y-1">
+                      {filteredCoaches.length === 0 ? (
+                        <div className="text-sm text-muted-foreground text-center py-6" data-testid="text-no-matches">
+                          No coaches match your search
                         </div>
-                      ))}
+                      ) : (
+                        filteredCoaches.map((coach) => (
+                          <div
+                            key={coach.id}
+                            className="flex items-center gap-3 p-2 rounded-md hover-elevate"
+                            data-testid={`coach-recipient-${coach.id}`}
+                          >
+                            <Checkbox
+                              id={`coach-${coach.id}`}
+                              checked={selectedCoaches.has(coach.id)}
+                              onCheckedChange={() => handleCoachToggle(coach.id)}
+                              data-testid={`checkbox-coach-${coach.id}`}
+                            />
+                            <Label
+                              htmlFor={`coach-${coach.id}`}
+                              className="flex-1 cursor-pointer"
+                            >
+                              <div className="font-medium text-sm">{coach.name}</div>
+                              <div className="text-xs text-muted-foreground">
+                                {coach.school} - {coach.email}
+                                {coach.division && (
+                                  <span className="ml-1">({coach.division})</span>
+                                )}
+                              </div>
+                            </Label>
+                          </div>
+                        ))
+                      )}
                     </div>
                   </ScrollArea>
                 </>
