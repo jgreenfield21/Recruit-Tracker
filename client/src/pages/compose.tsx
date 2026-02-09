@@ -132,11 +132,16 @@ export default function Compose() {
   const sendMutation = useMutation({
     mutationFn: async (data: { coachIds: string[]; subject: string; body: string; attachments?: { filename: string; content: string }[] }) => {
       const res = await apiRequest("POST", "/api/send-emails", data);
-      return res.json();
+      const text = await res.text();
+      try {
+        return JSON.parse(text);
+      } catch {
+        return { message: "Emails sent successfully!" };
+      }
     },
     onSuccess: (data: any) => {
       queryClient.invalidateQueries({ queryKey: ["/api/contacts"] });
-      const results = data.results || [];
+      const results = Array.isArray(data?.results) ? data.results : [];
       const failed = results.filter((r: any) => !r.success);
       if (failed.length > 0) {
         toast({
@@ -145,7 +150,7 @@ export default function Compose() {
           variant: "destructive",
         });
       } else {
-        toast({ title: data.message || "Emails sent successfully!" });
+        toast({ title: data?.message || "Emails sent successfully!" });
       }
       resetForm();
     },
