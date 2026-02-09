@@ -1022,16 +1022,13 @@ app.post("/api/send-emails", isAuthenticated, async (req, res) => {
       });
     }
 
-    const results: { success: string[]; failed: { id: string; error: string }[] } = {
-      success: [],
-      failed: [],
-    };
+    const results: { coachId: string; success: boolean; error?: string }[] = [];
 
     for (const coachId of coachIds) {
       try {
         const coach = await storage.getCoach(coachId);
         if (!coach) {
-          results.failed.push({ id: coachId, error: "Coach not found" });
+          results.push({ coachId, success: false, error: "Coach not found" });
           continue;
         }
 
@@ -1073,7 +1070,7 @@ app.post("/api/send-emails", isAuthenticated, async (req, res) => {
 
         if (sendResult.rejected && sendResult.rejected.length > 0) {
           console.error(`[send-emails] REJECTED by SMTP for ${coach.email}:`, sendResult.rejected);
-          results.failed.push({ id: coachId, error: `Email rejected by mail server` });
+          results.push({ coachId, success: false, error: `Email rejected by mail server` });
           continue;
         }
 
@@ -1097,14 +1094,21 @@ app.post("/api/send-emails", isAuthenticated, async (req, res) => {
           console.error(`[send-emails] Failed to update status:`, statusError.message);
         }
 
-        results.success.push(coachId);
+        results.push({ coachId, success: true });
       } catch (error: any) {
-        results.failed.push({ id: coachId, error: error.message });
+        results.push({ coachId, success: false, error: error.message });
       }
     }
 
+    const successCount = results.filter((r) => r.success).length;
+    const failCount = results.filter((r) => !r.success).length;
+
+    if (failCount === results.length && results.length > 0) {
+      return res.status(500).json({ error: "Failed to send all emails", results });
+    }
+
     res.json({
-      message: `Sent ${results.success.length} emails successfully`,
+      message: `Successfully sent ${successCount} email(s)${failCount > 0 ? `, ${failCount} failed` : ""}`,
       results,
     });
   } catch (error: any) {

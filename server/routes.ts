@@ -398,9 +398,14 @@ export async function registerRoutes(
       });
 
       const results = [];
+      console.log("[send-emails] Coach IDs received:", coachIds);
       for (const coachId of coachIds) {
         const coach = await storage.getCoach(coachId);
-        if (!coach) continue;
+        console.log(`[send-emails] Looking up coach ${coachId}:`, coach ? `found (${coach.name}, ${coach.email})` : "NOT FOUND");
+        if (!coach) {
+          results.push({ coachId, success: false, error: "Coach not found in database" });
+          continue;
+        }
 
         const personalizedSubject = subject
           .replace(/\{\{coach_name\}\}/g, coach.name)
