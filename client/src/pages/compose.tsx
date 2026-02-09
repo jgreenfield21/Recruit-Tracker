@@ -130,11 +130,23 @@ export default function Compose() {
   };
 
   const sendMutation = useMutation({
-    mutationFn: (data: { coachIds: string[]; subject: string; body: string; attachments?: { filename: string; content: string }[] }) =>
-      apiRequest("POST", "/api/send-emails", data),
-    onSuccess: () => {
+    mutationFn: async (data: { coachIds: string[]; subject: string; body: string; attachments?: { filename: string; content: string }[] }) => {
+      const res = await apiRequest("POST", "/api/send-emails", data);
+      return res.json();
+    },
+    onSuccess: (data: any) => {
       queryClient.invalidateQueries({ queryKey: ["/api/contacts"] });
-      toast({ title: "Emails sent successfully!" });
+      const results = data.results || [];
+      const failed = results.filter((r: any) => !r.success);
+      if (failed.length > 0) {
+        toast({
+          title: `${results.length - failed.length} sent, ${failed.length} failed`,
+          description: failed.map((f: any) => f.error).join("; "),
+          variant: "destructive",
+        });
+      } else {
+        toast({ title: data.message || "Emails sent successfully!" });
+      }
       resetForm();
     },
     onError: (error: any) => {

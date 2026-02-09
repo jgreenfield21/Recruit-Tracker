@@ -262,13 +262,16 @@ export async function registerRoutes(
   app.post("/api/email-settings", isAuthenticated, async (req: any, res) => {
     try {
       const userId = (req.user as any)?.uid || (req.user as any)?.claims?.sub;
+      console.log("[email-settings] Saving settings for user:", userId, "email:", req.body.email);
       const data = insertEmailSettingsSchema.parse({
         ...req.body,
         userId: userId || req.body.userId
       });
       const settings = await storage.saveEmailSettings(data);
+      console.log("[email-settings] Settings saved successfully:", { id: settings.id, email: settings.email, configured: settings.configured });
       res.json({ id: settings.id, email: settings.email, configured: settings.configured });
-    } catch (error) {
+    } catch (error: any) {
+      console.error("[email-settings] Failed to save:", error.message || error);
       if (error instanceof z.ZodError) {
         return res.status(400).json({ error: error.errors });
       }
@@ -293,20 +296,32 @@ export async function registerRoutes(
           user: settings.email,
           pass: settings.appPassword,
         },
+        tls: {
+          minVersion: "TLSv1.2",
+          ciphers: "HIGH",
+        },
+        logger: true,
+        debug: true,
       });
 
       console.log("[test-email] Verifying SMTP connection to smtp.mail.me.com:587...");
       await transporter.verify();
       console.log("[test-email] SMTP connection verified, sending test email...");
 
-      await transporter.sendMail({
+      const testResult = await transporter.sendMail({
         from: settings.email,
         to: settings.email,
         subject: "RecruitTrack - Test Email",
         text: "This is a test email from RecruitTrack. Your iCloud Mail integration is working correctly!",
+        html: textToHtml("This is a test email from RecruitTrack. Your iCloud Mail integration is working correctly!"),
       });
-      console.log("[test-email] Test email sent successfully to " + settings.email);
-      res.json({ success: true });
+      console.log("[test-email] Test email sent successfully to " + settings.email, {
+        messageId: testResult.messageId,
+        response: testResult.response,
+        accepted: testResult.accepted,
+        rejected: testResult.rejected,
+      });
+      res.json({ success: true, messageId: testResult.messageId });
     } catch (error: any) {
       console.error("[test-email] Failed:", error.code, error.message, error.response);
       let userMessage = error.message || "Failed to connect to iCloud Mail";
@@ -345,7 +360,24 @@ export async function registerRoutes(
           user: settings.email,
           pass: settings.appPassword,
         },
+        tls: {
+          minVersion: "TLSv1.2",
+          ciphers: "HIGH",
+        },
+        logger: true,
+        debug: true,
       });
+
+      console.log("[send-emails] Verifying SMTP connection...");
+      try {
+        await transporter.verify();
+        console.log("[send-emails] SMTP connection verified successfully");
+      } catch (verifyErr: any) {
+        console.error("[send-emails] SMTP verification failed:", verifyErr.code, verifyErr.message, verifyErr.response);
+        return res.status(400).json({ 
+          error: `Cannot connect to iCloud Mail: ${verifyErr.message}. Please check your email settings and app-specific password.` 
+        });
+      }
 
       // Parse base64 attachments
       const mailAttachments = (attachments || []).map((att: { filename: string; content: string }) => {
@@ -385,7 +417,7 @@ export async function registerRoutes(
         try {
           const userId = (req as any).user?.uid || (req as any).user?.claims?.sub;
           console.log(`[send-emails] Sending to ${coach.email} (${coach.name})...`);
-          await transporter.sendMail({
+          const sendResult = await transporter.sendMail({
             from: settings.email,
             to: coach.email,
             subject: personalizedSubject,
@@ -393,7 +425,19 @@ export async function registerRoutes(
             html: textToHtml(personalizedBody),
             attachments: mailAttachments,
           });
-          console.log(`[send-emails] Successfully sent to ${coach.email}`);
+          console.log(`[send-emails] Result for ${coach.email}:`, {
+            messageId: sendResult.messageId,
+            response: sendResult.response,
+            accepted: sendResult.accepted,
+            rejected: sendResult.rejected,
+            envelope: sendResult.envelope,
+          });
+
+          if (sendResult.rejected && sendResult.rejected.length > 0) {
+            console.error(`[send-emails] REJECTED by SMTP for ${coach.email}:`, sendResult.rejected);
+            results.push({ coachId: coach.id, success: false, error: `Email rejected by mail server for: ${sendResult.rejected.join(", ")}` });
+            continue;
+          }
 
           try {
             await storage.createContact({

@@ -845,20 +845,32 @@ app.post("/api/test-email", isAuthenticated, async (req, res) => {
         user: settings.email,
         pass: settings.appPassword,
       },
+      tls: {
+        minVersion: "TLSv1.2",
+        ciphers: "HIGH",
+      },
+      logger: true,
+      debug: true,
     });
 
     console.log("[test-email] Verifying SMTP connection...");
     await transporter.verify();
     console.log("[test-email] SMTP connection verified, sending test email...");
 
-    await transporter.sendMail({
+    const testResult = await transporter.sendMail({
       from: settings.email,
       to: settings.email,
       subject: "RecruitTrack - Test Email",
       text: "This is a test email from RecruitTrack. Your iCloud Mail integration is working correctly!",
+      html: textToHtml("This is a test email from RecruitTrack. Your iCloud Mail integration is working correctly!"),
     });
-    console.log("[test-email] Test email sent successfully to " + settings.email);
-    res.json({ success: true });
+    console.log("[test-email] Test email sent successfully to " + settings.email, {
+      messageId: testResult.messageId,
+      response: testResult.response,
+      accepted: testResult.accepted,
+      rejected: testResult.rejected,
+    });
+    res.json({ success: true, messageId: testResult.messageId });
   } catch (error: any) {
     console.error("[test-email] Failed:", error.code, error.message, error.response);
     let userMessage = error.message || "Failed to connect to iCloud Mail";
@@ -991,7 +1003,24 @@ app.post("/api/send-emails", isAuthenticated, async (req, res) => {
         user: settings.email,
         pass: settings.appPassword,
       },
+      tls: {
+        minVersion: "TLSv1.2",
+        ciphers: "HIGH",
+      },
+      logger: true,
+      debug: true,
     });
+
+    console.log("[send-emails] Verifying SMTP connection...");
+    try {
+      await transporter.verify();
+      console.log("[send-emails] SMTP connection verified successfully");
+    } catch (verifyErr: any) {
+      console.error("[send-emails] SMTP verification failed:", verifyErr.code, verifyErr.message);
+      return res.status(400).json({ 
+        error: `Cannot connect to iCloud Mail: ${verifyErr.message}. Please check your email settings and app-specific password.` 
+      });
+    }
 
     const results: { success: string[]; failed: { id: string; error: string }[] } = {
       success: [],
@@ -1034,7 +1063,19 @@ app.post("/api/send-emails", isAuthenticated, async (req, res) => {
           }));
         }
 
-        await transporter.sendMail(mailOptions);
+        const sendResult = await transporter.sendMail(mailOptions);
+        console.log(`[send-emails] Result for ${coach.email}:`, {
+          messageId: sendResult.messageId,
+          response: sendResult.response,
+          accepted: sendResult.accepted,
+          rejected: sendResult.rejected,
+        });
+
+        if (sendResult.rejected && sendResult.rejected.length > 0) {
+          console.error(`[send-emails] REJECTED by SMTP for ${coach.email}:`, sendResult.rejected);
+          results.failed.push({ id: coachId, error: `Email rejected by mail server` });
+          continue;
+        }
 
         try {
           await storage.createContact({
