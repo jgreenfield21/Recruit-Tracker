@@ -261,7 +261,7 @@ export default function Compose() {
   const applyMergeFields = (text: string, coach: Coach) => {
     return text
       .replace(/\{\{coach_name\}\}/g, coach.name)
-      .replace(/\{\{salutation\}\}/g, coach.salutation || coach.name.split(" ")[0])
+      .replace(/\{\{salutation\}\}/g, coach.salutation || "Coach " + (coach.name.includes(" ") ? coach.name.substring(coach.name.indexOf(" ") + 1) : coach.name))
       .replace(/\{\{school\}\}/g, coach.school)
       .replace(/\{\{position\}\}/g, coach.position || "Coach");
   };

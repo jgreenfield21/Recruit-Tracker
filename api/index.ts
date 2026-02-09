@@ -1071,13 +1071,13 @@ app.post("/api/send-emails", isAuthenticated, async (req, res) => {
         let personalizedBody = body
           .replace(/\{\{coach_name\}\}/g, coach.name)
           .replace(/\{\{school\}\}/g, coach.school)
-          .replace(/\{\{salutation\}\}/g, coach.salutation || "Coach")
+          .replace(/\{\{salutation\}\}/g, coach.salutation || "Coach " + (coach.name.includes(" ") ? coach.name.substring(coach.name.indexOf(" ") + 1) : coach.name))
           .replace(/\{\{position\}\}/g, coach.position || "");
 
         let personalizedSubject = subject
           .replace(/\{\{coach_name\}\}/g, coach.name)
           .replace(/\{\{school\}\}/g, coach.school)
-          .replace(/\{\{salutation\}\}/g, coach.salutation || "Coach")
+          .replace(/\{\{salutation\}\}/g, coach.salutation || "Coach " + (coach.name.includes(" ") ? coach.name.substring(coach.name.indexOf(" ") + 1) : coach.name))
           .replace(/\{\{position\}\}/g, coach.position || "");
 
         const mailOptions: any = {

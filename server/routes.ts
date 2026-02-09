@@ -443,15 +443,16 @@ export async function registerRoutes(
           continue;
         }
 
+        const defaultSalutation = "Coach " + (coach.name.includes(" ") ? coach.name.substring(coach.name.indexOf(" ") + 1) : coach.name);
         const personalizedSubject = subject
           .replace(/\{\{coach_name\}\}/g, coach.name)
-          .replace(/\{\{salutation\}\}/g, coach.salutation || coach.name.split(" ")[0])
+          .replace(/\{\{salutation\}\}/g, coach.salutation || defaultSalutation)
           .replace(/\{\{school\}\}/g, coach.school)
           .replace(/\{\{position\}\}/g, coach.position || "Coach");
 
         const personalizedBody = body
           .replace(/\{\{coach_name\}\}/g, coach.name)
-          .replace(/\{\{salutation\}\}/g, coach.salutation || coach.name.split(" ")[0])
+          .replace(/\{\{salutation\}\}/g, coach.salutation || defaultSalutation)
           .replace(/\{\{school\}\}/g, coach.school)
           .replace(/\{\{position\}\}/g, coach.position || "Coach");
 
@@ -660,15 +661,16 @@ export async function registerRoutes(
           const coach = await storage.getCoach(coachId);
           if (!coach) continue;
 
+          const scheduledDefaultSalutation = "Coach " + (coach.name.includes(" ") ? coach.name.substring(coach.name.indexOf(" ") + 1) : coach.name);
           const personalizedSubject = scheduled.subject
             .replace(/\{\{coach_name\}\}/g, coach.name)
-            .replace(/\{\{salutation\}\}/g, coach.salutation || coach.name.split(" ")[0])
+            .replace(/\{\{salutation\}\}/g, coach.salutation || scheduledDefaultSalutation)
             .replace(/\{\{school\}\}/g, coach.school)
             .replace(/\{\{position\}\}/g, coach.position || "Coach");
 
           const personalizedBody = scheduled.body
             .replace(/\{\{coach_name\}\}/g, coach.name)
-            .replace(/\{\{salutation\}\}/g, coach.salutation || coach.name.split(" ")[0])
+            .replace(/\{\{salutation\}\}/g, coach.salutation || scheduledDefaultSalutation)
             .replace(/\{\{school\}\}/g, coach.school)
             .replace(/\{\{position\}\}/g, coach.position || "Coach");
 

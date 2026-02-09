@@ -262,7 +262,7 @@ export default function Coaches() {
                           {coach.position || "-"}
                         </TableCell>
                         <TableCell className="hidden md:table-cell">
-                          {coach.salutation || "-"}
+                          {coach.salutation || "Coach " + (coach.name.includes(" ") ? coach.name.substring(coach.name.indexOf(" ") + 1) : coach.name)}
                         </TableCell>
                         <TableCell className="hidden lg:table-cell">
                           {coach.division || "-"}
