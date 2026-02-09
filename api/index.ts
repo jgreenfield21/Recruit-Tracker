@@ -605,6 +605,42 @@ app.post("/api/coaches", isAuthenticated, async (req, res) => {
   }
 });
 
+app.post("/api/coaches/import", isAuthenticated, async (req, res) => {
+  try {
+    const { coaches: coachRows } = req.body;
+    if (!Array.isArray(coachRows) || coachRows.length === 0) {
+      return res.status(400).json({ error: "No coaches provided" });
+    }
+    const results: { name: string; success: boolean; error?: string }[] = [];
+    for (const row of coachRows) {
+      try {
+        const data = insertCoachSchema.parse({
+          name: row.name?.trim() || "",
+          email: row.email?.trim() || "",
+          school: row.school?.trim() || "",
+          phone: row.phone?.trim() || undefined,
+          position: row.position?.trim() || undefined,
+          division: row.division?.trim() || undefined,
+          status: "not_contacted",
+        });
+        await storage.createCoach(data);
+        results.push({ name: data.name, success: true });
+      } catch (err: any) {
+        results.push({
+          name: row.name || "Unknown",
+          success: false,
+          error: err instanceof z.ZodError ? err.errors.map((e: any) => e.message).join(", ") : err.message,
+        });
+      }
+    }
+    const imported = results.filter((r) => r.success).length;
+    const failed = results.filter((r) => !r.success).length;
+    res.json({ imported, failed, results });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to import coaches" });
+  }
+});
+
 app.patch("/api/coaches/:id", isAuthenticated, async (req, res) => {
   try {
     const data = insertCoachSchema.partial().parse(req.body);

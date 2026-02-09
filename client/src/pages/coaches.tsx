@@ -14,6 +14,7 @@ import {
   Users,
   Filter,
   Download,
+  Upload,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -51,6 +52,7 @@ import { StatusBadge } from "@/components/status-badge";
 import { EmptyState } from "@/components/empty-state";
 import { LoadingState } from "@/components/loading-state";
 import { CoachForm } from "@/components/coach-form";
+import { ImportCoachesDialog } from "@/components/import-coaches-dialog";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { Coach, Contact, CoachStatus } from "@shared/schema";
@@ -61,6 +63,7 @@ export default function Coaches() {
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [divisionFilter, setDivisionFilter] = useState<string>("all");
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
+  const [isImportDialogOpen, setIsImportDialogOpen] = useState(false);
   const [editingCoach, setEditingCoach] = useState<Coach | null>(null);
   const { toast } = useToast();
 
@@ -140,6 +143,10 @@ export default function Coaches() {
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
+          <Button variant="outline" onClick={() => setIsImportDialogOpen(true)} data-testid="button-import-coaches">
+            <Upload className="h-4 w-4 mr-2" />
+            Import
+          </Button>
           <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
             <DialogTrigger asChild>
               <Button data-testid="button-add-new-coach">
@@ -324,6 +331,8 @@ export default function Coaches() {
           )}
         </DialogContent>
       </Dialog>
+
+      <ImportCoachesDialog open={isImportDialogOpen} onOpenChange={setIsImportDialogOpen} />
     </div>
   );
 }
