@@ -236,6 +236,7 @@ export default function Coaches() {
                     <TableHead>Name</TableHead>
                     <TableHead>School</TableHead>
                     <TableHead className="hidden md:table-cell">Position</TableHead>
+                    <TableHead className="hidden md:table-cell">Salutation</TableHead>
                     <TableHead className="hidden lg:table-cell">Division</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead className="hidden sm:table-cell">Last Contact</TableHead>
@@ -259,6 +260,9 @@ export default function Coaches() {
                         <TableCell>{coach.school}</TableCell>
                         <TableCell className="hidden md:table-cell">
                           {coach.position || "-"}
+                        </TableCell>
+                        <TableCell className="hidden md:table-cell">
+                          {coach.salutation || "-"}
                         </TableCell>
                         <TableCell className="hidden lg:table-cell">
                           {coach.division || "-"}
