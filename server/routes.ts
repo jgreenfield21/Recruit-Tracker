@@ -379,23 +379,23 @@ export async function registerRoutes(
         });
       }
 
-      // Parse base64 attachments
-      const mailAttachments = (attachments || []).map((att: { filename: string; content: string }) => {
-        // content is a data URL like "data:application/pdf;base64,..."
-        const matches = att.content.match(/^data:(.+);base64,(.+)$/);
-        if (matches) {
+      const mailAttachments = (attachments || [])
+        .filter((att: any) => att && att.content)
+        .map((att: any) => {
+          const matches = typeof att.content === "string" ? att.content.match(/^data:(.+);base64,(.+)$/) : null;
+          if (matches) {
+            return {
+              filename: att.filename || att.name || "attachment",
+              content: matches[2],
+              encoding: "base64" as const,
+              contentType: matches[1],
+            };
+          }
           return {
-            filename: att.filename,
-            content: matches[2],
-            encoding: "base64",
-            contentType: matches[1],
+            filename: att.filename || att.name || "attachment",
+            content: att.content,
           };
-        }
-        return {
-          filename: att.filename,
-          content: att.content,
-        };
-      });
+        });
 
       const results = [];
       console.log("[send-emails] Coach IDs received:", coachIds);

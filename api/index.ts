@@ -1053,11 +1053,25 @@ app.post("/api/send-emails", isAuthenticated, async (req, res) => {
         };
 
         if (attachments && Array.isArray(attachments) && attachments.length > 0) {
-          mailOptions.attachments = attachments.map((att: any) => ({
-            filename: att.name,
-            content: Buffer.from(att.data, "base64"),
-            contentType: att.type,
-          }));
+          mailOptions.attachments = attachments
+            .filter((att: any) => att && (att.content || att.data))
+            .map((att: any) => {
+              const rawContent = att.content || att.data;
+              const name = att.filename || att.name;
+              const matches = typeof rawContent === "string" ? rawContent.match(/^data:(.+);base64,(.+)$/) : null;
+              if (matches) {
+                return {
+                  filename: name,
+                  content: matches[2],
+                  encoding: "base64" as const,
+                  contentType: matches[1],
+                };
+              }
+              return {
+                filename: name,
+                content: rawContent,
+              };
+            });
         }
 
         const sendResult = await transporter.sendMail(mailOptions);
