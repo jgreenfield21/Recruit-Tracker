@@ -62,6 +62,7 @@ const coaches = pgTable("coaches", {
   salutation: text("salutation"),
   notes: text("notes"),
   status: text("status").notNull().default("not_contacted"),
+  favorite: boolean("favorite").notNull().default(false),
 });
 
 const insertCoachSchema = createInsertSchema(coaches).omit({ id: true });
@@ -174,7 +175,8 @@ async function initializeDatabase() {
         division TEXT,
         salutation TEXT,
         notes TEXT,
-        status TEXT NOT NULL DEFAULT 'not_contacted'
+        status TEXT NOT NULL DEFAULT 'not_contacted',
+        favorite BOOLEAN NOT NULL DEFAULT false
       );
       
       CREATE TABLE IF NOT EXISTS contacts (

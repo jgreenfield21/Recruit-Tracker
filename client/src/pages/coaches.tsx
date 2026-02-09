@@ -15,6 +15,7 @@ import {
   Filter,
   Download,
   Upload,
+  Star,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -62,6 +63,7 @@ export default function Coaches() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [divisionFilter, setDivisionFilter] = useState<string>("all");
+  const [favoriteFilter, setFavoriteFilter] = useState<string>("all");
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isImportDialogOpen, setIsImportDialogOpen] = useState(false);
   const [editingCoach, setEditingCoach] = useState<Coach | null>(null);
@@ -86,6 +88,14 @@ export default function Coaches() {
     },
   });
 
+  const toggleFavoriteMutation = useMutation({
+    mutationFn: ({ id, favorite }: { id: string; favorite: boolean }) =>
+      apiRequest("PATCH", `/api/coaches/${id}`, { favorite }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/coaches"] });
+    },
+  });
+
   if (isLoading) {
     return <LoadingState message="Loading coaches..." />;
   }
@@ -106,7 +116,8 @@ export default function Coaches() {
       coach.email.toLowerCase().includes(search.toLowerCase());
     const matchesStatus = statusFilter === "all" || coach.status === statusFilter;
     const matchesDivision = divisionFilter === "all" || coach.division === divisionFilter;
-    return matchesSearch && matchesStatus && matchesDivision;
+    const matchesFavorite = favoriteFilter === "all" || (favoriteFilter === "favorites" && coach.favorite);
+    return matchesSearch && matchesStatus && matchesDivision && matchesFavorite;
   }) || [];
 
   return (
@@ -208,6 +219,16 @@ export default function Coaches() {
                   ))}
                 </SelectContent>
               </Select>
+              <Select value={favoriteFilter} onValueChange={setFavoriteFilter}>
+                <SelectTrigger className="w-[140px]" data-testid="select-favorite-filter">
+                  <Star className="h-4 w-4 mr-2" />
+                  <SelectValue placeholder="Favorites" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Coaches</SelectItem>
+                  <SelectItem value="favorites">Favorites Only</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
           </div>
         </CardHeader>
@@ -249,11 +270,22 @@ export default function Coaches() {
                     return (
                       <TableRow key={coach.id} data-testid={`row-coach-${coach.id}`}>
                         <TableCell>
-                          <div className="flex flex-col">
-                            <span className="font-medium">{coach.name}</span>
-                            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                              <Mail className="h-3 w-3" />
-                              <span className="truncate max-w-[150px]">{coach.email}</span>
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => toggleFavoriteMutation.mutate({ id: coach.id, favorite: !coach.favorite })}
+                              className="shrink-0"
+                              data-testid={`button-favorite-${coach.id}`}
+                            >
+                              <Star
+                                className={`h-4 w-4 ${coach.favorite ? "fill-yellow-400 text-yellow-400" : "text-muted-foreground"}`}
+                              />
+                            </button>
+                            <div className="flex flex-col">
+                              <span className="font-medium">{coach.name}</span>
+                              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                                <Mail className="h-3 w-3" />
+                                <span className="truncate max-w-[150px]">{coach.email}</span>
+                              </div>
                             </div>
                           </div>
                         </TableCell>

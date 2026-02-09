@@ -12,6 +12,7 @@ import {
   X,
   AlertCircle,
   Search,
+  Star,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -65,6 +66,7 @@ export default function Compose() {
   const [attachments, setAttachments] = useState<AttachmentFile[]>([]);
   const [coachSearch, setCoachSearch] = useState("");
   const [divisionFilter, setDivisionFilter] = useState("all");
+  const [favoriteFilter, setFavoriteFilter] = useState("all");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
 
@@ -123,6 +125,7 @@ export default function Compose() {
     if (!coaches) return [];
     return coaches.filter((coach) => {
       if (divisionFilter !== "all" && coach.division !== divisionFilter) return false;
+      if (favoriteFilter === "favorites" && !coach.favorite) return false;
       if (coachSearch.trim()) {
         const q = coachSearch.toLowerCase();
         return (
@@ -134,7 +137,7 @@ export default function Compose() {
       }
       return true;
     });
-  }, [coaches, coachSearch, divisionFilter]);
+  }, [coaches, coachSearch, divisionFilter, favoriteFilter]);
 
   const insertProfileLink = (profile: RecruitingProfile) => {
     const linkText = `[${profile.name}](${profile.url})`;
@@ -405,7 +408,7 @@ export default function Compose() {
                 />
               ) : (
                 <>
-                  <div className="flex items-center gap-2 mb-3">
+                  <div className="flex items-center gap-2 mb-3 flex-wrap">
                     <div className="relative flex-1">
                       <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                       <Input
@@ -425,6 +428,16 @@ export default function Compose() {
                         {divisionOptions.map((d) => (
                           <SelectItem key={d.value} value={d.value}>{d.label}</SelectItem>
                         ))}
+                      </SelectContent>
+                    </Select>
+                    <Select value={favoriteFilter} onValueChange={setFavoriteFilter}>
+                      <SelectTrigger className="w-[140px]" data-testid="select-favorite-filter">
+                        <Star className="h-4 w-4 mr-2" />
+                        <SelectValue placeholder="Favorites" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Coaches</SelectItem>
+                        <SelectItem value="favorites">Favorites Only</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -469,7 +482,10 @@ export default function Compose() {
                               htmlFor={`coach-${coach.id}`}
                               className="flex-1 cursor-pointer"
                             >
-                              <div className="font-medium text-sm">{coach.name}</div>
+                              <div className="font-medium text-sm flex items-center gap-1">
+                                {coach.favorite && <Star className="h-3 w-3 fill-yellow-400 text-yellow-400 shrink-0" />}
+                                {coach.name}
+                              </div>
                               <div className="text-xs text-muted-foreground">
                                 {coach.school} - {coach.email}
                                 {coach.division && (
