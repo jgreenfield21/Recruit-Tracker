@@ -116,7 +116,7 @@ export default function Compose() {
   });
 
   const insertProfileLink = (profile: RecruitingProfile) => {
-    const linkText = `${profile.name}: ${profile.url}`;
+    const linkText = `[${profile.name}](${profile.url})`;
     setBody((prev) => prev + (prev ? "\n" : "") + linkText);
   };
 

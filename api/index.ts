@@ -12,6 +12,27 @@ import { sql } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import admin from "firebase-admin";
 
+function textToHtml(text: string): string {
+  let html = text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+
+  html = html.replace(
+    /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,
+    '<a href="$2" style="color:#2563eb;text-decoration:underline;">$1</a>'
+  );
+
+  html = html.replace(
+    /(?<!\href=")(https?:\/\/[^\s<]+)/g,
+    '<a href="$1" style="color:#2563eb;text-decoration:underline;">$1</a>'
+  );
+
+  html = html.replace(/\n/g, "<br>");
+
+  return `<div style="font-family:sans-serif;font-size:14px;line-height:1.6;color:#333;">${html}</div>`;
+}
+
 const isFirebaseConfigured = Boolean(process.env.FIREBASE_PROJECT_ID);
 
 if (isFirebaseConfigured && admin.apps.length === 0) {
@@ -1002,6 +1023,7 @@ app.post("/api/send-emails", isAuthenticated, async (req, res) => {
           to: coach.email,
           subject: personalizedSubject,
           text: personalizedBody,
+          html: textToHtml(personalizedBody),
         };
 
         if (attachments && Array.isArray(attachments) && attachments.length > 0) {
