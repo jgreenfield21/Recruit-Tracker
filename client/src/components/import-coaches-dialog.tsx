@@ -42,30 +42,60 @@ interface ImportResult {
   error?: string;
 }
 
+const KNOWN_HEADERS = ["name", "coach name", "full name", "email", "email address", "phone", "phone number", "telephone", "position", "title", "role", "school", "university", "college", "division", "div"];
+
+function looksLikeHeaderRow(parts: string[]): boolean {
+  const lowered = parts.map((p) => p.toLowerCase());
+  const matches = lowered.filter((p) => KNOWN_HEADERS.includes(p));
+  return matches.length >= 2;
+}
+
 function parseRawText(text: string, school: string, division: string): ParsedCoach[] {
   const coaches: ParsedCoach[] = [];
   const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
+  if (lines.length === 0) return coaches;
 
-  for (const line of lines) {
-    const parts = line.split(",").map((p) => p.trim());
-    if (parts.length < 3) continue;
+  const firstLineParts = parseCsvFields(lines[0]);
 
-    const emailPart = parts.find((p) => p.includes("@"));
-    const phonePart = parts.find((p) => /\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}/.test(p));
+  if (looksLikeHeaderRow(firstLineParts)) {
+    const headers = firstLineParts.map((h) => h.toLowerCase());
+    const nameIdx = headers.findIndex((h) => h === "name" || h === "coach name" || h === "full name");
+    const emailIdx = headers.findIndex((h) => h === "email" || h === "email address");
+    const phoneIdx = headers.findIndex((h) => h === "phone" || h === "phone number" || h === "telephone");
+    const schoolIdx = headers.findIndex((h) => h === "school" || h === "university" || h === "college");
+    const positionIdx = headers.findIndex((h) => h === "position" || h === "title" || h === "role");
+    const divisionIdx = headers.findIndex((h) => h === "division" || h === "div");
 
-    const nonEmailPhoneParts = parts.filter((p) => p !== emailPart && p !== phonePart);
+    for (let i = 1; i < lines.length; i++) {
+      const parts = parseCsvFields(lines[i]);
+      if (parts.length < 2) continue;
+      coaches.push({
+        name: nameIdx !== -1 ? parts[nameIdx] || "" : "",
+        email: emailIdx !== -1 ? parts[emailIdx] || "" : "",
+        phone: phoneIdx !== -1 ? parts[phoneIdx] || "" : "",
+        school: schoolIdx !== -1 ? parts[schoolIdx] || school : school,
+        position: positionIdx !== -1 ? parts[positionIdx] || "" : "",
+        division: divisionIdx !== -1 ? parts[divisionIdx] || division : division,
+      });
+    }
+  } else {
+    for (const line of lines) {
+      const parts = parseCsvFields(line);
+      if (parts.length < 3) continue;
 
-    const name = nonEmailPhoneParts[0] || "";
-    const position = nonEmailPhoneParts.slice(1).join(", ") || "";
+      const emailPart = parts.find((p) => p.includes("@"));
+      const phonePart = parts.find((p) => /\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}/.test(p));
+      const nonEmailPhoneParts = parts.filter((p) => p !== emailPart && p !== phonePart);
 
-    coaches.push({
-      name,
-      position,
-      email: emailPart || "",
-      phone: phonePart || "",
-      school,
-      division,
-    });
+      coaches.push({
+        name: nonEmailPhoneParts[0] || "",
+        position: nonEmailPhoneParts.slice(1).join(", ") || "",
+        email: emailPart || "",
+        phone: phonePart || "",
+        school,
+        division,
+      });
+    }
   }
   return coaches;
 }
@@ -294,14 +324,14 @@ export function ImportCoachesDialog({ open, onOpenChange }: ImportCoachesDialogP
               <TabsContent value="paste" className="space-y-3 mt-3">
                 <Label>Paste coach data (one per line)</Label>
                 <Textarea
-                  placeholder={"Tim Horsmon, Head Coach, daytonvbrecruiting@udayton.edu, (937) 229-5631\nTim Balice, Assistant Coach, tbalice1@udayton.edu, (937) 229-5631"}
+                  placeholder={"Name, Position, Email, Phone\nTim Horsmon, Head Coach, daytonvbrecruiting@udayton.edu, (937) 229-5631\nTim Balice, Assistant Coach, tbalice1@udayton.edu, (937) 229-5631"}
                   value={rawText}
                   onChange={(e) => setRawText(e.target.value)}
                   rows={6}
                   data-testid="textarea-import-raw"
                 />
                 <p className="text-xs text-muted-foreground">
-                  Format: Name, Position, Email, Phone (one coach per line)
+                  Optionally include a header row (e.g. Name, Email, Phone, Position, School, Division) to specify columns in any order. Without headers, the format Name, Position, Email, Phone is auto-detected.
                 </p>
                 <Button onClick={handleParse} disabled={!rawText.trim()} data-testid="button-parse-text">
                   Preview Coaches
