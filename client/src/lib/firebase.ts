@@ -9,7 +9,12 @@ const firebaseConfig = {
   appId: import.meta.env.VITE_FIREBASE_APP_ID,
 };
 
+const isOnReplit = Boolean(
+  typeof window !== "undefined" && window.location.hostname.includes("replit")
+);
+
 const isFirebaseConfigured = Boolean(
+  !isOnReplit &&
   import.meta.env.VITE_FIREBASE_API_KEY &&
   import.meta.env.VITE_FIREBASE_PROJECT_ID &&
   import.meta.env.VITE_FIREBASE_APP_ID
