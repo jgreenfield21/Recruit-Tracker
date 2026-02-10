@@ -24,7 +24,6 @@ export const coaches = pgTable("coaches", {
   salutation: text("salutation"),
   notes: text("notes"),
   status: text("status").notNull().default("not_contacted"),
-  favorite: boolean("favorite").notNull().default(false),
 });
 
 export const insertCoachSchema = createInsertSchema(coaches).omit({ id: true });
