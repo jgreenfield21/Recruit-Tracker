@@ -89,15 +89,24 @@ export default function Coaches() {
   });
 
   const toggleFavoriteMutation = useMutation({
-    mutationFn: (id: string) => apiRequest("PATCH", `/api/coaches/${id}/favorite`),
+    mutationFn: async (id: string) => {
+      const res = await fetch(`/api/coaches/${id}/favorite`, {
+        method: "PATCH",
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(text || res.statusText);
+      }
+      return res.json();
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/coaches"] });
     },
     onError: (error: Error) => {
-      const isAuthError = error.message?.includes("401");
       toast({
-        title: isAuthError ? "Session expired" : "Failed to update favorite",
-        description: isAuthError ? "Please log in again to continue." : "Something went wrong. Please try again.",
+        title: "Failed to update favorite",
+        description: error.message || "Something went wrong. Please try again.",
         variant: "destructive",
       });
     },

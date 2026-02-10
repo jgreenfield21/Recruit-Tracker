@@ -2,13 +2,13 @@ import { QueryClient, QueryFunction } from "@tanstack/react-query";
 import { auth, isFirebaseConfigured } from "./firebase";
 
 async function getAuthHeaders(): Promise<Record<string, string>> {
-  if (isFirebaseConfigured && auth?.currentUser) {
-    try {
+  try {
+    if (isFirebaseConfigured && auth?.currentUser) {
       const token = await auth.currentUser.getIdToken();
       return { Authorization: `Bearer ${token}` };
-    } catch (error) {
-      console.error("Failed to get Firebase token:", error);
     }
+  } catch (error) {
+    console.error("Failed to get Firebase token:", error);
   }
   return {};
 }
