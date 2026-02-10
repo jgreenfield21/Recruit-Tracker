@@ -125,6 +125,8 @@ const scheduledEmails = pgTable("scheduled_emails", {
   scheduledAt: text("scheduled_at").notNull(),
   status: text("status").notNull().default("pending"),
   createdAt: text("created_at").notNull(),
+  errorMessage: text("error_message"),
+  sentCoachIds: text("sent_coach_ids"),
 });
 
 const insertScheduledEmailSchema = createInsertSchema(scheduledEmails).omit({ id: true });
@@ -220,8 +222,12 @@ async function initializeDatabase() {
         body TEXT NOT NULL,
         scheduled_at TEXT NOT NULL,
         status TEXT NOT NULL DEFAULT 'pending',
-        created_at TEXT NOT NULL
+        created_at TEXT NOT NULL,
+        error_message TEXT,
+        sent_coach_ids TEXT
       );
+      ALTER TABLE scheduled_emails ADD COLUMN IF NOT EXISTS error_message TEXT;
+      ALTER TABLE scheduled_emails ADD COLUMN IF NOT EXISTS sent_coach_ids TEXT;
       
       CREATE TABLE IF NOT EXISTS users (
         id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -1011,7 +1017,7 @@ async function processScheduledEmails(): Promise<{ sent: number; failed: number;
   if (!settings || !settings.configured) {
     console.error("[scheduled-emails] Email settings not configured. Marking", dueEmails.length, "scheduled email(s) as failed.");
     for (const scheduled of dueEmails) {
-      await storage.updateScheduledEmail(scheduled.id, { status: "failed" });
+      await storage.updateScheduledEmail(scheduled.id, { status: "failed", errorMessage: "iCloud Mail not configured. Go to Settings to set up your email." });
     }
     return { sent: 0, failed: dueEmails.length, processed: dueEmails.length };
   }
@@ -1049,14 +1055,20 @@ async function processScheduledEmails(): Promise<{ sent: number; failed: number;
       coachIds = scheduled.coachIds.split(",").map((s) => s.trim()).filter(Boolean);
     }
 
-    let allSuccess = true;
-    let anySent = false;
+    const sentIds: string[] = [];
+    const errors: string[] = [];
+    let rateLimited = false;
 
     for (const coachId of coachIds) {
+      if (rateLimited) {
+        errors.push(`Skipped (rate limited)`);
+        continue;
+      }
+
       const coach = await storage.getCoach(coachId);
       if (!coach) {
         console.error(`[scheduled-emails] Coach not found: ${coachId}`);
-        allSuccess = false;
+        errors.push(`Coach not found (deleted?)`);
         continue;
       }
 
@@ -1074,14 +1086,29 @@ async function processScheduledEmails(): Promise<{ sent: number; failed: number;
         .replace(/\{\{position\}\}/g, coach.position || "Coach");
 
       try {
-        await transporter.sendMail({
+        const sendResult = await transporter.sendMail({
           from: settings.email,
           to: coach.email,
           subject: personalizedSubject,
           text: personalizedBody,
           html: textToHtml(personalizedBody),
         });
-        anySent = true;
+
+        const smtpResponse = sendResult.response || "";
+        const wasRejected = sendResult.rejected && sendResult.rejected.length > 0;
+
+        if (wasRejected) {
+          errors.push(`${coach.name}: Rejected by mail server`);
+          continue;
+        }
+
+        if (smtpResponse.includes("421") || smtpResponse.includes("451") || smtpResponse.includes("452") || smtpResponse.includes("too many")) {
+          errors.push(`${coach.name}: Rate limited by iCloud Mail`);
+          rateLimited = true;
+          continue;
+        }
+
+        sentIds.push(coachId);
 
         try {
           await storage.createContact({
@@ -1102,16 +1129,45 @@ async function processScheduledEmails(): Promise<{ sent: number; failed: number;
         } catch (statusError: any) {
           console.error(`[scheduled-emails] Failed to update status:`, statusError.message);
         }
+
+        if (coachIds.indexOf(coachId) < coachIds.length - 1) {
+          await new Promise((r) => setTimeout(r, 2000));
+        }
       } catch (sendError: any) {
-        console.error(`[scheduled-emails] Failed to send to ${coach.email}:`, sendError.message);
-        allSuccess = false;
+        let errorMsg = sendError.message || "Unknown error";
+        if (sendError.code === "EAUTH" || sendError.responseCode === 535) {
+          errorMsg = "Authentication failed. Check your iCloud app password.";
+        } else if (sendError.responseCode === 421 || sendError.responseCode === 451 || sendError.responseCode === 452) {
+          errorMsg = `Rate limited by iCloud (code ${sendError.responseCode})`;
+          rateLimited = true;
+        }
+        errors.push(`${coach.name}: ${errorMsg}`);
+        console.error(`[scheduled-emails] Failed to send to ${coach.email}:`, sendError.code, sendError.message);
       }
     }
 
-    const finalStatus = (allSuccess && anySent) ? "sent" : "failed";
-    await storage.updateScheduledEmail(scheduled.id, { status: finalStatus });
+    let status: string;
+    let errorMessage: string | null = null;
 
-    if (finalStatus === "sent") sentCount++;
+    if (sentIds.length === coachIds.length) {
+      status = "sent";
+    } else if (sentIds.length > 0) {
+      status = "partial";
+      errorMessage = `Sent ${sentIds.length}/${coachIds.length}. Failures: ${errors.join("; ")}`;
+    } else {
+      status = "failed";
+      errorMessage = errors.join("; ");
+    }
+
+    await storage.updateScheduledEmail(scheduled.id, {
+      status,
+      errorMessage,
+      sentCoachIds: sentIds.length > 0 ? JSON.stringify(sentIds) : null,
+    });
+
+    console.log(`[scheduled-emails] ${scheduled.id}: status=${status}, sent=${sentIds.length}/${coachIds.length}${errorMessage ? `, errors: ${errorMessage}` : ""}`);
+
+    if (status === "sent") sentCount++;
     else failedCount++;
   }
 

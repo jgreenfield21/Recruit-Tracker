@@ -701,7 +701,7 @@ export async function registerRoutes(
       if (!settings || !settings.configured) {
         console.error("[scheduled-emails] Email settings not configured. Marking", dueEmails.length, "scheduled email(s) as failed.");
         for (const scheduled of dueEmails) {
-          await storage.updateScheduledEmail(scheduled.id, { status: "failed" });
+          await storage.updateScheduledEmail(scheduled.id, { status: "failed", errorMessage: "iCloud Mail not configured. Go to Settings to set up your email." });
         }
         return;
       }
@@ -718,12 +718,28 @@ export async function registerRoutes(
       });
 
       for (const scheduled of dueEmails) {
-        const coachIds = JSON.parse(scheduled.coachIds) as string[];
-        let allSuccess = true;
+        let coachIds: string[];
+        try {
+          const parsed = JSON.parse(scheduled.coachIds);
+          coachIds = Array.isArray(parsed) ? parsed : [parsed];
+        } catch {
+          coachIds = scheduled.coachIds.split(",").map((s) => s.trim()).filter(Boolean);
+        }
+        const sentIds: string[] = [];
+        const errors: string[] = [];
+        let rateLimited = false;
 
         for (const coachId of coachIds) {
+          if (rateLimited) {
+            errors.push(`Skipped (rate limited)`);
+            continue;
+          }
+
           const coach = await storage.getCoach(coachId);
-          if (!coach) continue;
+          if (!coach) {
+            errors.push(`Coach not found (deleted?)`);
+            continue;
+          }
 
           const scheduledDefaultSalutation = "Coach " + (coach.name.includes(" ") ? coach.name.substring(coach.name.indexOf(" ") + 1) : coach.name);
           const personalizedSubject = scheduled.subject
@@ -739,13 +755,29 @@ export async function registerRoutes(
             .replace(/\{\{position\}\}/g, coach.position || "Coach");
 
           try {
-            await transporter.sendMail({
+            const sendResult = await transporter.sendMail({
               from: settings.email,
               to: coach.email,
               subject: personalizedSubject,
               text: personalizedBody,
               html: textToHtml(personalizedBody),
             });
+
+            const smtpResponse = sendResult.response || "";
+            const wasRejected = sendResult.rejected && sendResult.rejected.length > 0;
+
+            if (wasRejected) {
+              errors.push(`${coach.name}: Rejected by mail server`);
+              continue;
+            }
+
+            if (smtpResponse.includes("421") || smtpResponse.includes("451") || smtpResponse.includes("452") || smtpResponse.includes("too many")) {
+              errors.push(`${coach.name}: Rate limited by iCloud Mail`);
+              rateLimited = true;
+              continue;
+            }
+
+            sentIds.push(coachId);
 
             try {
               await storage.createContact({
@@ -766,14 +798,43 @@ export async function registerRoutes(
             } catch (statusError: any) {
               console.error(`[scheduled-emails] Failed to update status:`, statusError.message);
             }
-          } catch {
-            allSuccess = false;
+
+            if (coachIds.indexOf(coachId) < coachIds.length - 1) {
+              await new Promise((r) => setTimeout(r, 2000));
+            }
+          } catch (error: any) {
+            let errorMsg = error.message || "Unknown error";
+            if (error.code === "EAUTH" || error.responseCode === 535) {
+              errorMsg = "Authentication failed. Check your iCloud app password.";
+            } else if (error.responseCode === 421 || error.responseCode === 451 || error.responseCode === 452) {
+              errorMsg = `Rate limited by iCloud (code ${error.responseCode})`;
+              rateLimited = true;
+            }
+            errors.push(`${coach.name}: ${errorMsg}`);
+            console.error(`[scheduled-emails] Failed to send to ${coach.email}:`, error.code, error.message);
           }
         }
 
+        let status: string;
+        let errorMessage: string | null = null;
+
+        if (sentIds.length === coachIds.length) {
+          status = "sent";
+        } else if (sentIds.length > 0) {
+          status = "partial";
+          errorMessage = `Sent ${sentIds.length}/${coachIds.length}. Failures: ${errors.join("; ")}`;
+        } else {
+          status = "failed";
+          errorMessage = errors.join("; ");
+        }
+
         await storage.updateScheduledEmail(scheduled.id, {
-          status: allSuccess ? "sent" : "failed",
+          status,
+          errorMessage,
+          sentCoachIds: sentIds.length > 0 ? JSON.stringify(sentIds) : null,
         });
+
+        console.log(`[scheduled-emails] ${scheduled.id}: status=${status}, sent=${sentIds.length}/${coachIds.length}${errorMessage ? `, errors: ${errorMessage}` : ""}`);
       }
     } catch (error) {
       console.error("Error processing scheduled emails:", error);

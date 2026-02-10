@@ -473,7 +473,7 @@ export default function Compose() {
   };
 
   const pendingScheduledEmails = scheduledEmails?.filter((e) => e.status === "pending" || e.status === "processing") || [];
-  const failedScheduledEmails = scheduledEmails?.filter((e) => e.status === "failed") || [];
+  const failedScheduledEmails = scheduledEmails?.filter((e) => e.status === "failed" || e.status === "partial") || [];
 
   const getScheduledCoachNames = (coachIdsRaw: string) => {
     let ids: string[];
@@ -964,40 +964,54 @@ I am reaching out to introduce myself..."
               <CardHeader>
                 <CardTitle className="flex items-center gap-2 text-base text-destructive">
                   <AlertTriangle className="h-4 w-4" />
-                  Failed Scheduled Emails
+                  {failedScheduledEmails.some((e) => e.status === "partial") ? "Email Send Issues" : "Failed Scheduled Emails"}
                   <Badge variant="destructive">{failedScheduledEmails.length}</Badge>
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <p className="text-xs text-muted-foreground mb-3">
-                  These emails failed to send. Make sure your iCloud Mail is configured in Settings.
-                </p>
-                <ScrollArea className="h-[150px]">
+                <ScrollArea className="h-[200px]">
                   <div className="space-y-3">
                     {failedScheduledEmails.map((email) => (
                       <div
                         key={email.id}
-                        className="flex items-center justify-between p-3 rounded-md bg-destructive/10"
+                        className={`p-3 rounded-md ${email.status === "partial" ? "bg-yellow-500/10 dark:bg-yellow-500/10" : "bg-destructive/10"}`}
                         data-testid={`failed-scheduled-email-${email.id}`}
                       >
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium truncate">{email.subject}</p>
-                          <p className="text-xs text-muted-foreground truncate">
-                            To: {getScheduledCoachNames(email.coachIds)}
-                          </p>
-                          <p className="text-xs text-muted-foreground">
-                            Was scheduled for {formatET(email.scheduledAt, "MMM d, yyyy 'at' h:mm a 'ET'")}
-                          </p>
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-1 flex-wrap">
+                              <p className="text-sm font-medium truncate">{email.subject}</p>
+                              <Badge variant={email.status === "partial" ? "outline" : "destructive"} className="text-[10px]">
+                                {email.status === "partial" ? "Partially Sent" : "Failed"}
+                              </Badge>
+                            </div>
+                            <p className="text-xs text-muted-foreground truncate">
+                              To: {getScheduledCoachNames(email.coachIds)}
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              Scheduled for {formatET(email.scheduledAt, "MMM d, yyyy 'at' h:mm a 'ET'")}
+                            </p>
+                            {email.errorMessage && (
+                              <p className="text-xs mt-2 text-destructive" data-testid={`text-error-${email.id}`}>
+                                {email.errorMessage}
+                              </p>
+                            )}
+                            {!email.errorMessage && email.status === "failed" && (
+                              <p className="text-xs mt-2 text-muted-foreground">
+                                Check that your iCloud Mail is configured in Settings.
+                              </p>
+                            )}
+                          </div>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            onClick={() => cancelScheduleMutation.mutate(email.id)}
+                            disabled={cancelScheduleMutation.isPending}
+                            data-testid={`button-dismiss-failed-${email.id}`}
+                          >
+                            <X className="h-4 w-4" />
+                          </Button>
                         </div>
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          onClick={() => cancelScheduleMutation.mutate(email.id)}
-                          disabled={cancelScheduleMutation.isPending}
-                          data-testid={`button-dismiss-failed-${email.id}`}
-                        >
-                          <X className="h-4 w-4" />
-                        </Button>
                       </div>
                     ))}
                   </div>

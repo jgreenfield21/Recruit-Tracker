@@ -121,13 +121,15 @@ export const scheduledEmails = pgTable("scheduled_emails", {
   scheduledAt: text("scheduled_at").notNull(),
   status: text("status").notNull().default("pending"),
   createdAt: text("created_at").notNull(),
+  errorMessage: text("error_message"),
+  sentCoachIds: text("sent_coach_ids"),
 });
 
 export const insertScheduledEmailSchema = createInsertSchema(scheduledEmails).omit({ id: true });
 export type InsertScheduledEmail = z.infer<typeof insertScheduledEmailSchema>;
 export type ScheduledEmail = typeof scheduledEmails.$inferSelect;
 
-export type ScheduledEmailStatus = "pending" | "sent" | "failed";
+export type ScheduledEmailStatus = "pending" | "sent" | "failed" | "partial";
 
 export const users = pgTable("users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
