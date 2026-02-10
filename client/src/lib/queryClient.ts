@@ -1,7 +1,7 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
 import { auth, isFirebaseConfigured } from "./firebase";
 
-async function getAuthHeaders(): Promise<Record<string, string>> {
+export async function getAuthHeaders(): Promise<Record<string, string>> {
   try {
     if (isFirebaseConfigured && auth?.currentUser) {
       const token = await auth.currentUser.getIdToken();

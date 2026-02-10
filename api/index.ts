@@ -1079,11 +1079,23 @@ app.post("/api/send-emails", isAuthenticated, async (req, res) => {
     }
 
     const results: { coachId: string; success: boolean; error?: string }[] = [];
+    const EMAIL_DELAY_MS = 2000;
     const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+    let consecutiveErrors = 0;
+    const MAX_CONSECUTIVE_ERRORS = 5;
 
     for (let idx = 0; idx < coachIds.length; idx++) {
       const coachId = coachIds[idx];
-      if (idx > 0) await delay(500);
+      if (idx > 0) await delay(EMAIL_DELAY_MS);
+
+      if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
+        console.error(`[send-emails] Aborting: ${MAX_CONSECUTIVE_ERRORS} consecutive failures detected`);
+        for (let j = idx; j < coachIds.length; j++) {
+          results.push({ coachId: coachIds[j], success: false, error: "Skipped: too many consecutive failures (likely rate limited by iCloud)" });
+        }
+        break;
+      }
+
       try {
         const coach = await storage.getCoach(coachId);
         if (!coach) {
@@ -1134,18 +1146,25 @@ app.post("/api/send-emails", isAuthenticated, async (req, res) => {
         }
 
         const sendResult = await transporter.sendMail(mailOptions);
-        console.log(`[send-emails] Result for ${coach.email}:`, {
-          messageId: sendResult.messageId,
-          response: sendResult.response,
-          accepted: sendResult.accepted,
-          rejected: sendResult.rejected,
-        });
+        const smtpResponse = sendResult.response || "";
+        const wasRejected = sendResult.rejected && sendResult.rejected.length > 0;
 
-        if (sendResult.rejected && sendResult.rejected.length > 0) {
-          console.error(`[send-emails] REJECTED by SMTP for ${coach.email}:`, sendResult.rejected);
+        console.log(`[send-emails] [${idx + 1}/${coachIds.length}] SMTP response: "${smtpResponse}", rejected: ${wasRejected}`);
+
+        if (wasRejected) {
           results.push({ coachId, success: false, error: `Email rejected by mail server` });
+          consecutiveErrors++;
           continue;
         }
+
+        if (smtpResponse.includes("421") || smtpResponse.includes("451") || smtpResponse.includes("452") || smtpResponse.includes("too many")) {
+          results.push({ coachId, success: false, error: `Rate limited by iCloud Mail: ${smtpResponse}` });
+          consecutiveErrors++;
+          await delay(10000);
+          continue;
+        }
+
+        consecutiveErrors = 0;
 
         try {
           await storage.createContact({
@@ -1169,20 +1188,29 @@ app.post("/api/send-emails", isAuthenticated, async (req, res) => {
 
         results.push({ coachId, success: true });
       } catch (error: any) {
-        results.push({ coachId, success: false, error: error.message });
+        consecutiveErrors++;
+        let errorMsg = error.message;
+        if (error.responseCode === 421 || error.responseCode === 451 || error.responseCode === 452) {
+          errorMsg = `Rate limited by iCloud Mail (${error.responseCode})`;
+          await delay(10000);
+        }
+        results.push({ coachId, success: false, error: errorMsg });
       }
     }
 
     const successCount = results.filter((r) => r.success).length;
     const failCount = results.filter((r) => !r.success).length;
+    const rateLimited = consecutiveErrors >= MAX_CONSECUTIVE_ERRORS || 
+      results.some((r) => !r.success && r.error && (r.error.includes("rate limit") || r.error.includes("Rate limit") || r.error.includes("consecutive failures") || r.error.includes("Skipped")));
 
     if (failCount === results.length && results.length > 0) {
-      return res.status(500).json({ error: "Failed to send all emails", results });
+      return res.status(500).json({ error: "Failed to send all emails", results, rateLimited });
     }
 
     res.json({
       message: `Successfully sent ${successCount} email(s)${failCount > 0 ? `, ${failCount} failed` : ""}`,
       results,
+      rateLimited,
     });
   } catch (error: any) {
     res.status(500).json({ error: error.message || "Failed to send emails" });

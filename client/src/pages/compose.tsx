@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef, useCallback } from "react";
+import { useState, useMemo, useRef, useCallback, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { format, parseISO } from "date-fns";
 import {
@@ -38,7 +38,7 @@ import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { EmptyState } from "@/components/empty-state";
 import { LoadingState } from "@/components/loading-state";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { apiRequest, queryClient, getAuthHeaders } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { Coach, EmailTemplate, EmailSettings, ScheduledEmail, RecruitingProfile } from "@shared/schema";
 import { divisionOptions } from "@shared/schema";
@@ -67,8 +67,9 @@ export default function Compose() {
   const [coachSearch, setCoachSearch] = useState("");
   const [divisionFilter, setDivisionFilter] = useState("all");
   const [favoriteFilter, setFavoriteFilter] = useState(false);
-  const [sendProgress, setSendProgress] = useState<{ sent: number; total: number; failed: number } | null>(null);
+  const [sendProgress, setSendProgress] = useState<{ sent: number; total: number; failed: number; startTime: number; aborted: boolean } | null>(null);
   const [isSending, setIsSending] = useState(false);
+  const [showLargeSendWarning, setShowLargeSendWarning] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
 
@@ -168,17 +169,30 @@ export default function Compose() {
     bodyText: string,
     attachmentData: { filename: string; content: string }[]
   ) => {
-    const res = await apiRequest("POST", "/api/send-emails", {
-      coachIds,
-      subject: subj,
-      body: bodyText,
-      attachments: attachmentData,
+    const authHeaders = await getAuthHeaders();
+    const res = await fetch("/api/send-emails", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders },
+      credentials: "include",
+      body: JSON.stringify({
+        coachIds,
+        subject: subj,
+        body: bodyText,
+        attachments: attachmentData,
+      }),
     });
     const text = await res.text();
     try {
-      return JSON.parse(text);
-    } catch {
-      return { results: coachIds.map(id => ({ coachId: id, success: true })) };
+      const data = JSON.parse(text);
+      if (!res.ok && !data.results) {
+        throw new Error(data.error || res.statusText);
+      }
+      return data;
+    } catch (e) {
+      if (e instanceof SyntaxError) {
+        throw new Error(res.ok ? "Unknown response" : text || res.statusText);
+      }
+      throw e;
     }
   }, []);
 
@@ -291,6 +305,32 @@ export default function Compose() {
     });
   };
 
+  const LARGE_SEND_THRESHOLD = 50;
+  const ESTIMATED_SECONDS_PER_EMAIL = 2.5;
+
+  const getEstimatedTime = (count: number): string => {
+    const totalSeconds = Math.ceil(count * ESTIMATED_SECONDS_PER_EMAIL);
+    if (totalSeconds < 60) return `about ${totalSeconds} seconds`;
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    if (minutes < 60) return seconds > 0 ? `about ${minutes}m ${seconds}s` : `about ${minutes} minute${minutes > 1 ? "s" : ""}`;
+    const hours = Math.floor(minutes / 60);
+    const remainMinutes = minutes % 60;
+    return `about ${hours}h ${remainMinutes}m`;
+  };
+
+  const getTimeRemaining = (progress: { sent: number; total: number; failed: number; startTime: number }): string => {
+    const processed = progress.sent + progress.failed;
+    if (processed === 0) return getEstimatedTime(progress.total);
+    const elapsed = (Date.now() - progress.startTime) / 1000;
+    const avgPerEmail = elapsed / processed;
+    const remaining = (progress.total - processed) * avgPerEmail;
+    if (remaining < 60) return `~${Math.ceil(remaining)}s remaining`;
+    const minutes = Math.floor(remaining / 60);
+    const seconds = Math.ceil(remaining % 60);
+    return `~${minutes}m ${seconds}s remaining`;
+  };
+
   const handleSend = async () => {
     if (selectedCoaches.size === 0) {
       toast({ title: "Please select at least one coach", variant: "destructive" });
@@ -301,6 +341,12 @@ export default function Compose() {
       return;
     }
 
+    if (selectedCoaches.size >= LARGE_SEND_THRESHOLD && !showLargeSendWarning) {
+      setShowLargeSendWarning(true);
+      return;
+    }
+    setShowLargeSendWarning(false);
+
     setIsSending(true);
     let totalSent = 0;
 
@@ -309,8 +355,9 @@ export default function Compose() {
       const total = allCoachIds.length;
       let totalFailed = 0;
       const allFailures: string[] = [];
+      const startTime = Date.now();
 
-      setSendProgress({ sent: 0, total, failed: 0 });
+      setSendProgress({ sent: 0, total, failed: 0, startTime, aborted: false });
 
       const attachmentData = await Promise.all(
         attachments.map(async (a) => ({
@@ -324,6 +371,7 @@ export default function Compose() {
         batches.push(allCoachIds.slice(i, i + BATCH_SIZE));
       }
 
+      let aborted = false;
       for (let i = 0; i < batches.length; i++) {
         try {
           const result = await sendBatch(batches[i], subject, body, attachmentData);
@@ -333,18 +381,33 @@ export default function Compose() {
           totalSent += batchSuccess;
           totalFailed += batchFail.length;
           batchFail.forEach((f: any) => allFailures.push(f.error || "Unknown error"));
-          setSendProgress({ sent: totalSent, total, failed: totalFailed });
+          setSendProgress({ sent: totalSent, total, failed: totalFailed, startTime, aborted: false });
+
+          if (result?.rateLimited) {
+            const remaining = batches.slice(i + 1).reduce((sum, b) => sum + b.length, 0);
+            totalFailed += remaining;
+            aborted = true;
+            setSendProgress({ sent: totalSent, total, failed: totalFailed, startTime, aborted: true });
+            allFailures.push(`Stopped early: iCloud rate limit reached. ${remaining} emails skipped.`);
+            break;
+          }
         } catch (error: any) {
           totalFailed += batches[i].length;
           allFailures.push(error.message || "Batch failed");
-          setSendProgress({ sent: totalSent, total, failed: totalFailed });
+          setSendProgress({ sent: totalSent, total, failed: totalFailed, startTime, aborted: false });
         }
       }
 
       queryClient.invalidateQueries({ queryKey: ["/api/contacts"] });
       queryClient.invalidateQueries({ queryKey: ["/api/coaches"] });
 
-      if (totalFailed > 0 && totalSent > 0) {
+      if (aborted) {
+        toast({
+          title: `Sent ${totalSent}, stopped due to rate limiting`,
+          description: `iCloud limits how many emails you can send per hour. ${totalFailed} were not sent. Try again later for the remaining coaches.`,
+          variant: "destructive",
+        });
+      } else if (totalFailed > 0 && totalSent > 0) {
         toast({
           title: `${totalSent} sent, ${totalFailed} failed`,
           description: allFailures.slice(0, 3).join("; ") + (allFailures.length > 3 ? `... and ${allFailures.length - 3} more` : ""),
@@ -713,42 +776,85 @@ I am reaching out to introduce myself..."
                   </TabsTrigger>
                 </TabsList>
                 <TabsContent value="send-now" className="pt-4 space-y-3">
+                  {showLargeSendWarning && !isSending && (
+                    <Alert data-testid="alert-large-send">
+                      <AlertCircle className="h-4 w-4" />
+                      <AlertTitle>Sending to {selectedCoaches.size} coaches</AlertTitle>
+                      <AlertDescription className="space-y-2">
+                        <p>
+                          This will take {getEstimatedTime(selectedCoaches.size)}. iCloud Mail limits how many emails can be sent per hour (roughly 100). 
+                          If you exceed the limit, some emails may not be delivered.
+                        </p>
+                        <p className="font-medium">
+                          For best results, send to 100 or fewer coaches at a time.
+                        </p>
+                        <div className="flex items-center gap-2 pt-1 flex-wrap">
+                          <Button size="sm" onClick={handleSend} data-testid="button-confirm-large-send">
+                            <Send className="h-4 w-4 mr-2" />
+                            Send Anyway
+                          </Button>
+                          <Button size="sm" variant="outline" onClick={() => setShowLargeSendWarning(false)} data-testid="button-cancel-large-send">
+                            Cancel
+                          </Button>
+                        </div>
+                      </AlertDescription>
+                    </Alert>
+                  )}
                   {sendProgress && (
-                    <div className="space-y-2">
+                    <div className="space-y-2" data-testid="send-progress">
                       <div className="flex items-center justify-between text-sm text-muted-foreground">
-                        <span>Sending emails...</span>
+                        <span>{sendProgress.aborted ? "Sending stopped (rate limited)" : "Sending emails..."}</span>
                         <span>{sendProgress.sent + sendProgress.failed} / {sendProgress.total}</span>
                       </div>
                       <div className="w-full bg-muted rounded-full h-2 overflow-hidden">
-                        <div
-                          className="bg-primary h-2 rounded-full transition-all duration-300"
-                          style={{ width: `${((sendProgress.sent + sendProgress.failed) / sendProgress.total) * 100}%` }}
-                        />
+                        <div className="flex h-2">
+                          <div
+                            className="bg-primary h-2 transition-all duration-300"
+                            style={{ width: `${(sendProgress.sent / sendProgress.total) * 100}%` }}
+                          />
+                          {sendProgress.failed > 0 && (
+                            <div
+                              className="bg-destructive h-2 transition-all duration-300"
+                              style={{ width: `${(sendProgress.failed / sendProgress.total) * 100}%` }}
+                            />
+                          )}
+                        </div>
                       </div>
-                      <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                        <span>{sendProgress.sent} sent</span>
-                        {sendProgress.failed > 0 && <span className="text-destructive">{sendProgress.failed} failed</span>}
+                      <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground flex-wrap">
+                        <div className="flex items-center gap-3">
+                          <span>{sendProgress.sent} sent</span>
+                          {sendProgress.failed > 0 && <span className="text-destructive">{sendProgress.failed} failed</span>}
+                          <span>{sendProgress.total - sendProgress.sent - sendProgress.failed} pending</span>
+                        </div>
+                        {!sendProgress.aborted && sendProgress.sent + sendProgress.failed < sendProgress.total && (
+                          <span>{getTimeRemaining(sendProgress)}</span>
+                        )}
                       </div>
                     </div>
                   )}
-                  <Button
-                    onClick={handleSend}
-                    disabled={!isEmailConfigured || isSending || selectedCoaches.size === 0}
-                    className="w-full"
-                    data-testid="button-send-emails"
-                  >
-                    {isSending ? (
-                      <>
-                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                        Sending {sendProgress ? `${sendProgress.sent + sendProgress.failed}/${sendProgress.total}` : "..."}
-                      </>
-                    ) : (
-                      <>
-                        <Send className="h-4 w-4 mr-2" />
-                        Send to {selectedCoaches.size} Coach{selectedCoaches.size !== 1 ? "es" : ""}
-                      </>
-                    )}
-                  </Button>
+                  {!showLargeSendWarning && (
+                    <Button
+                      onClick={handleSend}
+                      disabled={!isEmailConfigured || isSending || selectedCoaches.size === 0}
+                      className="w-full"
+                      data-testid="button-send-emails"
+                    >
+                      {isSending ? (
+                        <>
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                          Sending {sendProgress ? `${sendProgress.sent + sendProgress.failed}/${sendProgress.total}` : "..."}
+                        </>
+                      ) : (
+                        <>
+                          <Send className="h-4 w-4 mr-2" />
+                          Send to {selectedCoaches.size} Coach{selectedCoaches.size !== 1 ? "es" : ""}
+                          {selectedCoaches.size >= LARGE_SEND_THRESHOLD && (
+                            <span className="ml-1 text-xs opacity-75">({getEstimatedTime(selectedCoaches.size)})</span>
+                          )}
+                        </>
+                      )}
+                    </Button>
+                  )}
                 </TabsContent>
                 <TabsContent value="schedule" className="space-y-4 pt-4">
                   <div className="grid grid-cols-2 gap-4">

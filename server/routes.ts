@@ -451,13 +451,24 @@ export async function registerRoutes(
         });
 
       const results = [];
+      const EMAIL_DELAY_MS = 2000;
       const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-      console.log("[send-emails] Coach IDs received:", coachIds);
+      let consecutiveErrors = 0;
+      const MAX_CONSECUTIVE_ERRORS = 5;
+      console.log(`[send-emails] Coach IDs received: ${coachIds.length} coaches, delay: ${EMAIL_DELAY_MS}ms`);
       for (let idx = 0; idx < coachIds.length; idx++) {
         const coachId = coachIds[idx];
-        if (idx > 0) await delay(500);
+        if (idx > 0) await delay(EMAIL_DELAY_MS);
+        
+        if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
+          console.error(`[send-emails] Aborting: ${MAX_CONSECUTIVE_ERRORS} consecutive failures detected (likely rate limited)`);
+          for (let j = idx; j < coachIds.length; j++) {
+            results.push({ coachId: coachIds[j], success: false, error: "Skipped: too many consecutive failures (likely rate limited by iCloud)" });
+          }
+          break;
+        }
+
         const coach = await storage.getCoach(coachId);
-        console.log(`[send-emails] Looking up coach ${coachId}:`, coach ? `found (${coach.name}, ${coach.email})` : "NOT FOUND");
         if (!coach) {
           results.push({ coachId, success: false, error: "Coach not found in database" });
           continue;
@@ -478,7 +489,7 @@ export async function registerRoutes(
 
         try {
           const userId = (req as any).user?.uid || (req as any).user?.claims?.sub;
-          console.log(`[send-emails] Sending to ${coach.email} (${coach.name})...`);
+          console.log(`[send-emails] [${idx + 1}/${coachIds.length}] Sending to ${coach.email} (${coach.name})...`);
           const sendResult = await transporter.sendMail({
             from: settings.email,
             to: coach.email,
@@ -487,19 +498,29 @@ export async function registerRoutes(
             html: textToHtml(personalizedBody),
             attachments: mailAttachments,
           });
-          console.log(`[send-emails] Result for ${coach.email}:`, {
-            messageId: sendResult.messageId,
-            response: sendResult.response,
-            accepted: sendResult.accepted,
-            rejected: sendResult.rejected,
-            envelope: sendResult.envelope,
-          });
 
-          if (sendResult.rejected && sendResult.rejected.length > 0) {
+          const smtpResponse = sendResult.response || "";
+          const wasAccepted = sendResult.accepted && sendResult.accepted.length > 0;
+          const wasRejected = sendResult.rejected && sendResult.rejected.length > 0;
+
+          console.log(`[send-emails] [${idx + 1}/${coachIds.length}] SMTP response: "${smtpResponse}", accepted: ${wasAccepted}, rejected: ${wasRejected}`);
+
+          if (wasRejected) {
             console.error(`[send-emails] REJECTED by SMTP for ${coach.email}:`, sendResult.rejected);
             results.push({ coachId: coach.id, success: false, error: `Email rejected by mail server for: ${sendResult.rejected.join(", ")}` });
+            consecutiveErrors++;
             continue;
           }
+
+          if (smtpResponse.includes("421") || smtpResponse.includes("451") || smtpResponse.includes("452") || smtpResponse.includes("too many")) {
+            console.error(`[send-emails] Rate limit detected in SMTP response for ${coach.email}: ${smtpResponse}`);
+            results.push({ coachId: coach.id, success: false, error: `Rate limited by iCloud Mail: ${smtpResponse}` });
+            consecutiveErrors++;
+            await delay(10000);
+            continue;
+          }
+
+          consecutiveErrors = 0;
 
           try {
             await storage.createContact({
@@ -525,9 +546,13 @@ export async function registerRoutes(
           results.push({ coachId: coach.id, success: true });
         } catch (error: any) {
           console.error(`[send-emails] Failed to send to ${coach.email}:`, error.code, error.message, error.response);
+          consecutiveErrors++;
           let errorMsg = error.message;
           if (error.code === "EAUTH" || error.responseCode === 535) {
             errorMsg = "Authentication failed. Check your iCloud email and app password.";
+          } else if (error.responseCode === 421 || error.responseCode === 451 || error.responseCode === 452) {
+            errorMsg = `Rate limited by iCloud Mail (${error.responseCode}). Try sending fewer emails or waiting.`;
+            await delay(10000);
           }
           results.push({ coachId: coach.id, success: false, error: errorMsg });
         }
@@ -535,14 +560,17 @@ export async function registerRoutes(
 
       const successCount = results.filter((r) => r.success).length;
       const failCount = results.filter((r) => !r.success).length;
+      const rateLimited = consecutiveErrors >= MAX_CONSECUTIVE_ERRORS || 
+        results.some((r) => !r.success && r.error && (r.error.includes("rate limit") || r.error.includes("Rate limit") || r.error.includes("consecutive failures") || r.error.includes("Skipped")));
 
       if (failCount === results.length) {
-        return res.status(500).json({ error: "Failed to send all emails", results });
+        return res.status(500).json({ error: "Failed to send all emails", results, rateLimited });
       }
 
       res.json({ 
         message: `Successfully sent ${successCount} email(s)${failCount > 0 ? `, ${failCount} failed` : ""}`,
-        results 
+        results,
+        rateLimited,
       });
     } catch (error: any) {
       res.status(500).json({ error: error.message || "Failed to send emails" });
