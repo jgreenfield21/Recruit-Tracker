@@ -12,6 +12,7 @@ import {
   X,
   AlertCircle,
   Search,
+  Star,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -65,6 +66,7 @@ export default function Compose() {
   const [attachments, setAttachments] = useState<AttachmentFile[]>([]);
   const [coachSearch, setCoachSearch] = useState("");
   const [divisionFilter, setDivisionFilter] = useState("all");
+  const [favoriteFilter, setFavoriteFilter] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
 
@@ -121,7 +123,8 @@ export default function Compose() {
 
   const filteredCoaches = useMemo(() => {
     if (!coaches) return [];
-    return coaches.filter((coach) => {
+    const filtered = coaches.filter((coach) => {
+      if (favoriteFilter && !coach.favorite) return false;
       if (divisionFilter !== "all" && coach.division !== divisionFilter) return false;
       if (coachSearch.trim()) {
         const q = coachSearch.toLowerCase();
@@ -134,7 +137,12 @@ export default function Compose() {
       }
       return true;
     });
-  }, [coaches, coachSearch, divisionFilter]);
+    return filtered.sort((a, b) => {
+      if (a.favorite && !b.favorite) return -1;
+      if (!a.favorite && b.favorite) return 1;
+      return 0;
+    });
+  }, [coaches, coachSearch, divisionFilter, favoriteFilter]);
 
   const insertProfileLink = (profile: RecruitingProfile) => {
     const linkText = `[${profile.name}](${profile.url})`;
@@ -416,6 +424,15 @@ export default function Compose() {
                         data-testid="input-coach-search"
                       />
                     </div>
+                    <Button
+                      variant={favoriteFilter ? "default" : "outline"}
+                      size="icon"
+                      onClick={() => setFavoriteFilter(!favoriteFilter)}
+                      className="toggle-elevate"
+                      data-testid="button-favorite-filter"
+                    >
+                      <Star className={`h-4 w-4 ${favoriteFilter ? "fill-current" : ""}`} />
+                    </Button>
                     <Select value={divisionFilter} onValueChange={setDivisionFilter}>
                       <SelectTrigger className="w-[140px]" data-testid="select-division-filter">
                         <SelectValue placeholder="Division" />
@@ -469,7 +486,10 @@ export default function Compose() {
                               htmlFor={`coach-${coach.id}`}
                               className="flex-1 cursor-pointer"
                             >
-                              <div className="font-medium text-sm">{coach.name}</div>
+                              <div className="font-medium text-sm flex items-center gap-1">
+                                {coach.favorite && <Star className="h-3 w-3 fill-yellow-400 text-yellow-400 flex-shrink-0" />}
+                                {coach.name}
+                              </div>
                               <div className="text-xs text-muted-foreground">
                                 {coach.school} - {coach.email}
                                 {coach.division && (

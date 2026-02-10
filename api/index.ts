@@ -175,8 +175,10 @@ async function initializeDatabase() {
         division TEXT,
         salutation TEXT,
         notes TEXT,
-        status TEXT NOT NULL DEFAULT 'not_contacted'
+        status TEXT NOT NULL DEFAULT 'not_contacted',
+        favorite BOOLEAN NOT NULL DEFAULT FALSE
       );
+      ALTER TABLE coaches ADD COLUMN IF NOT EXISTS favorite BOOLEAN NOT NULL DEFAULT FALSE;
       
       CREATE TABLE IF NOT EXISTS contacts (
         id VARCHAR(36) PRIMARY KEY,

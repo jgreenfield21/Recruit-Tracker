@@ -115,6 +115,19 @@ export async function registerRoutes(
     }
   });
 
+  app.patch("/api/coaches/:id/favorite", isAuthenticated, async (req, res) => {
+    try {
+      const coach = await storage.getCoach(req.params.id);
+      if (!coach) {
+        return res.status(404).json({ error: "Coach not found" });
+      }
+      const updated = await storage.updateCoach(req.params.id, { favorite: !coach.favorite });
+      res.json(updated);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to toggle favorite" });
+    }
+  });
+
   app.patch("/api/coaches/:id", isAuthenticated, async (req, res) => {
     try {
       const data = insertCoachSchema.partial().parse(req.body);

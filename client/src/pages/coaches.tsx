@@ -15,6 +15,7 @@ import {
   Filter,
   Download,
   Upload,
+  Star,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -62,6 +63,7 @@ export default function Coaches() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [divisionFilter, setDivisionFilter] = useState<string>("all");
+  const [favoriteFilter, setFavoriteFilter] = useState(false);
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isImportDialogOpen, setIsImportDialogOpen] = useState(false);
   const [editingCoach, setEditingCoach] = useState<Coach | null>(null);
@@ -86,6 +88,16 @@ export default function Coaches() {
     },
   });
 
+  const toggleFavoriteMutation = useMutation({
+    mutationFn: (id: string) => apiRequest("PATCH", `/api/coaches/${id}/favorite`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/coaches"] });
+    },
+    onError: () => {
+      toast({ title: "Failed to update favorite", variant: "destructive" });
+    },
+  });
+
   if (isLoading) {
     return <LoadingState message="Loading coaches..." />;
   }
@@ -106,7 +118,8 @@ export default function Coaches() {
       coach.email.toLowerCase().includes(search.toLowerCase());
     const matchesStatus = statusFilter === "all" || coach.status === statusFilter;
     const matchesDivision = divisionFilter === "all" || coach.division === divisionFilter;
-    return matchesSearch && matchesStatus && matchesDivision;
+    const matchesFavorite = !favoriteFilter || coach.favorite;
+    return matchesSearch && matchesStatus && matchesDivision && matchesFavorite;
   }) || [];
 
   return (
@@ -181,6 +194,16 @@ export default function Coaches() {
               />
             </div>
             <div className="flex gap-2 flex-wrap">
+              <Button
+                variant={favoriteFilter ? "default" : "outline"}
+                size="default"
+                onClick={() => setFavoriteFilter(!favoriteFilter)}
+                className="toggle-elevate"
+                data-testid="button-favorite-filter"
+              >
+                <Star className={`h-4 w-4 mr-2 ${favoriteFilter ? "fill-current" : ""}`} />
+                Favorites
+              </Button>
               <Select value={statusFilter} onValueChange={setStatusFilter}>
                 <SelectTrigger className="w-[160px]" data-testid="select-status-filter">
                   <Filter className="h-4 w-4 mr-2" />
@@ -233,6 +256,7 @@ export default function Coaches() {
               <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead className="w-[40px]"></TableHead>
                     <TableHead>Name</TableHead>
                     <TableHead>School</TableHead>
                     <TableHead className="hidden md:table-cell">Position</TableHead>
@@ -248,6 +272,16 @@ export default function Coaches() {
                     const lastContact = getLastContactDate(coach.id);
                     return (
                       <TableRow key={coach.id} data-testid={`row-coach-${coach.id}`}>
+                        <TableCell>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => toggleFavoriteMutation.mutate(coach.id)}
+                            data-testid={`button-favorite-${coach.id}`}
+                          >
+                            <Star className={`h-4 w-4 ${coach.favorite ? "fill-yellow-400 text-yellow-400" : "text-muted-foreground"}`} />
+                          </Button>
+                        </TableCell>
                         <TableCell>
                           <div className="flex flex-col">
                             <span className="font-medium">{coach.name}</span>
