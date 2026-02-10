@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef } from "react";
+import { useState, useMemo, useRef, useCallback } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { format, parseISO } from "date-fns";
 import {
@@ -67,6 +67,8 @@ export default function Compose() {
   const [coachSearch, setCoachSearch] = useState("");
   const [divisionFilter, setDivisionFilter] = useState("all");
   const [favoriteFilter, setFavoriteFilter] = useState(false);
+  const [sendProgress, setSendProgress] = useState<{ sent: number; total: number; failed: number } | null>(null);
+  const [isSending, setIsSending] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
 
@@ -158,39 +160,27 @@ export default function Compose() {
     }
   };
 
-  const sendMutation = useMutation({
-    mutationFn: async (data: { coachIds: string[]; subject: string; body: string; attachments?: { filename: string; content: string }[] }) => {
-      const res = await apiRequest("POST", "/api/send-emails", data);
-      const text = await res.text();
-      try {
-        return JSON.parse(text);
-      } catch {
-        return { message: "Emails sent successfully!" };
-      }
-    },
-    onSuccess: (data: any) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/contacts"] });
-      const results = Array.isArray(data?.results) ? data.results : [];
-      const failed = results.filter((r: any) => !r.success);
-      if (failed.length > 0) {
-        toast({
-          title: `${results.length - failed.length} sent, ${failed.length} failed`,
-          description: failed.map((f: any) => f.error).join("; "),
-          variant: "destructive",
-        });
-      } else {
-        toast({ title: data?.message || "Emails sent successfully!" });
-      }
-      resetForm();
-    },
-    onError: (error: any) => {
-      toast({
-        title: "Failed to send emails",
-        description: error.message || "Please check your iCloud Mail settings.",
-        variant: "destructive",
-      });
-    },
-  });
+  const BATCH_SIZE = 15;
+
+  const sendBatch = useCallback(async (
+    coachIds: string[],
+    subj: string,
+    bodyText: string,
+    attachmentData: { filename: string; content: string }[]
+  ) => {
+    const res = await apiRequest("POST", "/api/send-emails", {
+      coachIds,
+      subject: subj,
+      body: bodyText,
+      attachments: attachmentData,
+    });
+    const text = await res.text();
+    try {
+      return JSON.parse(text);
+    } catch {
+      return { results: coachIds.map(id => ({ coachId: id, success: true })) };
+    }
+  }, []);
 
   const scheduleMutation = useMutation({
     mutationFn: (data: { coachIds: string[]; subject: string; body: string; scheduledAt: string }) =>
@@ -310,20 +300,78 @@ export default function Compose() {
       toast({ title: "Please fill in subject and body", variant: "destructive" });
       return;
     }
-    
-    const attachmentData = await Promise.all(
-      attachments.map(async (a) => ({
-        filename: a.name,
-        content: await fileToBase64(a.file),
-      }))
-    );
-    
-    sendMutation.mutate({
-      coachIds: Array.from(selectedCoaches),
-      subject,
-      body,
-      attachments: attachmentData,
-    });
+
+    setIsSending(true);
+    let totalSent = 0;
+
+    try {
+      const allCoachIds = Array.from(selectedCoaches);
+      const total = allCoachIds.length;
+      let totalFailed = 0;
+      const allFailures: string[] = [];
+
+      setSendProgress({ sent: 0, total, failed: 0 });
+
+      const attachmentData = await Promise.all(
+        attachments.map(async (a) => ({
+          filename: a.name,
+          content: await fileToBase64(a.file),
+        }))
+      );
+
+      const batches: string[][] = [];
+      for (let i = 0; i < allCoachIds.length; i += BATCH_SIZE) {
+        batches.push(allCoachIds.slice(i, i + BATCH_SIZE));
+      }
+
+      for (let i = 0; i < batches.length; i++) {
+        try {
+          const result = await sendBatch(batches[i], subject, body, attachmentData);
+          const results = Array.isArray(result?.results) ? result.results : [];
+          const batchSuccess = results.filter((r: any) => r.success).length;
+          const batchFail = results.filter((r: any) => !r.success);
+          totalSent += batchSuccess;
+          totalFailed += batchFail.length;
+          batchFail.forEach((f: any) => allFailures.push(f.error || "Unknown error"));
+          setSendProgress({ sent: totalSent, total, failed: totalFailed });
+        } catch (error: any) {
+          totalFailed += batches[i].length;
+          allFailures.push(error.message || "Batch failed");
+          setSendProgress({ sent: totalSent, total, failed: totalFailed });
+        }
+      }
+
+      queryClient.invalidateQueries({ queryKey: ["/api/contacts"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/coaches"] });
+
+      if (totalFailed > 0 && totalSent > 0) {
+        toast({
+          title: `${totalSent} sent, ${totalFailed} failed`,
+          description: allFailures.slice(0, 3).join("; ") + (allFailures.length > 3 ? `... and ${allFailures.length - 3} more` : ""),
+          variant: "destructive",
+        });
+      } else if (totalFailed > 0 && totalSent === 0) {
+        toast({
+          title: "Failed to send emails",
+          description: allFailures[0] || "Please check your email settings.",
+          variant: "destructive",
+        });
+      } else {
+        toast({ title: `Successfully sent ${totalSent} email(s)!` });
+      }
+    } catch (error: any) {
+      toast({
+        title: "Failed to send emails",
+        description: error.message || "An unexpected error occurred.",
+        variant: "destructive",
+      });
+    } finally {
+      setSendProgress(null);
+      setIsSending(false);
+      if (totalSent > 0) {
+        resetForm();
+      }
+    }
   };
 
   const handleSchedule = () => {
@@ -664,17 +712,35 @@ I am reaching out to introduce myself..."
                     Schedule
                   </TabsTrigger>
                 </TabsList>
-                <TabsContent value="send-now" className="pt-4">
+                <TabsContent value="send-now" className="pt-4 space-y-3">
+                  {sendProgress && (
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between text-sm text-muted-foreground">
+                        <span>Sending emails...</span>
+                        <span>{sendProgress.sent + sendProgress.failed} / {sendProgress.total}</span>
+                      </div>
+                      <div className="w-full bg-muted rounded-full h-2 overflow-hidden">
+                        <div
+                          className="bg-primary h-2 rounded-full transition-all duration-300"
+                          style={{ width: `${((sendProgress.sent + sendProgress.failed) / sendProgress.total) * 100}%` }}
+                        />
+                      </div>
+                      <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                        <span>{sendProgress.sent} sent</span>
+                        {sendProgress.failed > 0 && <span className="text-destructive">{sendProgress.failed} failed</span>}
+                      </div>
+                    </div>
+                  )}
                   <Button
                     onClick={handleSend}
-                    disabled={!isEmailConfigured || sendMutation.isPending || selectedCoaches.size === 0}
+                    disabled={!isEmailConfigured || isSending || selectedCoaches.size === 0}
                     className="w-full"
                     data-testid="button-send-emails"
                   >
-                    {sendMutation.isPending ? (
+                    {isSending ? (
                       <>
                         <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                        Sending...
+                        Sending {sendProgress ? `${sendProgress.sent + sendProgress.failed}/${sendProgress.total}` : "..."}
                       </>
                     ) : (
                       <>

@@ -1079,8 +1079,11 @@ app.post("/api/send-emails", isAuthenticated, async (req, res) => {
     }
 
     const results: { coachId: string; success: boolean; error?: string }[] = [];
+    const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-    for (const coachId of coachIds) {
+    for (let idx = 0; idx < coachIds.length; idx++) {
+      const coachId = coachIds[idx];
+      if (idx > 0) await delay(500);
       try {
         const coach = await storage.getCoach(coachId);
         if (!coach) {

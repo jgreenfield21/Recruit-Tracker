@@ -451,8 +451,11 @@ export async function registerRoutes(
         });
 
       const results = [];
+      const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
       console.log("[send-emails] Coach IDs received:", coachIds);
-      for (const coachId of coachIds) {
+      for (let idx = 0; idx < coachIds.length; idx++) {
+        const coachId = coachIds[idx];
+        if (idx > 0) await delay(500);
         const coach = await storage.getCoach(coachId);
         console.log(`[send-emails] Looking up coach ${coachId}:`, coach ? `found (${coach.name}, ${coach.email})` : "NOT FOUND");
         if (!coach) {
