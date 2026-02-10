@@ -6,9 +6,53 @@ import session from "express-session";
 import type { Express, RequestHandler } from "express";
 import memoize from "memoizee";
 import connectPg from "connect-pg-simple";
+import admin from "firebase-admin";
 import { storage } from "./storage";
 
 const isMockAuth = process.env.MOCK_AUTH === "true";
+
+const firebaseProjectId = process.env.FIREBASE_PROJECT_ID || process.env.VITE_FIREBASE_PROJECT_ID;
+
+if (firebaseProjectId && !admin.apps.length) {
+  admin.initializeApp({
+    projectId: firebaseProjectId,
+  });
+}
+
+async function verifyFirebaseToken(req: any): Promise<boolean> {
+  if (!firebaseProjectId || !admin.apps.length) return false;
+
+  const authHeader = req.headers.authorization;
+  if (!authHeader?.startsWith("Bearer ")) return false;
+
+  try {
+    const idToken = authHeader.split("Bearer ")[1];
+    const decodedToken = await admin.auth().verifyIdToken(idToken);
+    req.user = {
+      claims: {
+        sub: decodedToken.uid,
+        email: decodedToken.email,
+        first_name: decodedToken.name?.split(" ")[0] || "",
+        last_name: decodedToken.name?.split(" ").slice(1).join(" ") || "",
+        profile_image_url: decodedToken.picture || null,
+      },
+      expires_at: decodedToken.exp,
+    };
+
+    await storage.upsertUser({
+      id: decodedToken.uid,
+      email: decodedToken.email || "",
+      firstName: decodedToken.name?.split(" ")[0] || null,
+      lastName: decodedToken.name?.split(" ").slice(1).join(" ") || null,
+      profileImageUrl: decodedToken.picture || null,
+    });
+
+    return true;
+  } catch (error) {
+    console.error("Firebase token verification failed:", error);
+    return false;
+  }
+}
 
 const getOidcConfig = memoize(
   async () => {
@@ -171,28 +215,27 @@ export const isAuthenticated: RequestHandler = async (req, res, next) => {
 
   const user = req.user as any;
 
-  if (!req.isAuthenticated() || !user.expires_at) {
-    return res.status(401).json({ message: "Unauthorized" });
+  if (req.isAuthenticated() && user?.expires_at) {
+    const now = Math.floor(Date.now() / 1000);
+    if (now <= user.expires_at) {
+      return next();
+    }
+
+    const refreshToken = user.refresh_token;
+    if (refreshToken) {
+      try {
+        const config = await getOidcConfig();
+        const tokenResponse = await client.refreshTokenGrant(config, refreshToken);
+        updateUserSession(user, tokenResponse);
+        return next();
+      } catch (error) {
+      }
+    }
   }
 
-  const now = Math.floor(Date.now() / 1000);
-  if (now <= user.expires_at) {
+  if (await verifyFirebaseToken(req)) {
     return next();
   }
 
-  const refreshToken = user.refresh_token;
-  if (!refreshToken) {
-    res.status(401).json({ message: "Unauthorized" });
-    return;
-  }
-
-  try {
-    const config = await getOidcConfig();
-    const tokenResponse = await client.refreshTokenGrant(config, refreshToken);
-    updateUserSession(user, tokenResponse);
-    return next();
-  } catch (error) {
-    res.status(401).json({ message: "Unauthorized" });
-    return;
-  }
+  return res.status(401).json({ message: "Unauthorized" });
 };
