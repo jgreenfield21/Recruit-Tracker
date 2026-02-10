@@ -689,11 +689,18 @@ export async function registerRoutes(
         return;
       }
 
+      const now = new Date();
+      const dueEmails = pendingEmails.filter((e) => new Date(e.scheduledAt) <= now);
+      
+      if (dueEmails.length === 0) {
+        return;
+      }
+
       const settings = await storage.getEmailSettings();
       
       if (!settings || !settings.configured) {
-        console.error("[scheduled-emails] Email settings not configured. Marking", pendingEmails.length, "scheduled email(s) as failed.");
-        for (const scheduled of pendingEmails) {
+        console.error("[scheduled-emails] Email settings not configured. Marking", dueEmails.length, "scheduled email(s) as failed.");
+        for (const scheduled of dueEmails) {
           await storage.updateScheduledEmail(scheduled.id, { status: "failed" });
         }
         return;
@@ -710,7 +717,7 @@ export async function registerRoutes(
         },
       });
 
-      for (const scheduled of pendingEmails) {
+      for (const scheduled of dueEmails) {
         const coachIds = JSON.parse(scheduled.coachIds) as string[];
         let allSuccess = true;
 

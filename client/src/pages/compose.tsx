@@ -474,13 +474,17 @@ export default function Compose() {
   const pendingScheduledEmails = scheduledEmails?.filter((e) => e.status === "pending") || [];
   const failedScheduledEmails = scheduledEmails?.filter((e) => e.status === "failed") || [];
 
-  const getScheduledCoachNames = (coachIdsJson: string) => {
+  const getScheduledCoachNames = (coachIdsRaw: string) => {
+    let ids: string[];
     try {
-      const ids = JSON.parse(coachIdsJson) as string[];
-      return ids.map((id) => coaches?.find((c) => c.id === id)?.name || "Unknown").join(", ");
+      const parsed = JSON.parse(coachIdsRaw);
+      ids = Array.isArray(parsed) ? parsed : [parsed];
     } catch {
-      return "Unknown";
+      ids = coachIdsRaw.split(",").map((s) => s.trim()).filter(Boolean);
     }
+    if (ids.length === 0) return "Unknown";
+    const names = ids.map((id) => coaches?.find((c) => c.id === id)?.name).filter(Boolean);
+    return names.length > 0 ? names.join(", ") : "Unknown";
   };
 
   if (isLoading) {
