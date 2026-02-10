@@ -95,8 +95,8 @@ export default function Coaches() {
         credentials: "include",
       });
       if (!res.ok) {
-        const text = await res.text();
-        throw new Error(text || res.statusText);
+        const data = await res.json().catch(() => null);
+        throw new Error(data?.error || res.statusText);
       }
       return res.json();
     },
@@ -104,6 +104,7 @@ export default function Coaches() {
       queryClient.invalidateQueries({ queryKey: ["/api/coaches"] });
     },
     onError: (error: Error) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/coaches"] });
       toast({
         title: "Failed to update favorite",
         description: error.message || "Something went wrong. Please try again.",
