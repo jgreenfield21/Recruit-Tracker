@@ -5,7 +5,7 @@ import session from "express-session";
 import pgSession from "connect-pg-simple";
 import pg from "pg";
 import { drizzle } from "drizzle-orm/node-postgres";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { pgTable, text, varchar, timestamp, boolean, index, jsonb } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { sql } from "drizzle-orm";
@@ -995,8 +995,137 @@ app.delete("/api/recruiting-profiles/:id", isAuthenticated, async (req, res) => 
   }
 });
 
+async function processScheduledEmails(): Promise<{ sent: number; failed: number; processed: number }> {
+  const pendingEmails = await storage.getPendingScheduledEmails();
+  if (pendingEmails.length === 0) {
+    return { sent: 0, failed: 0, processed: 0 };
+  }
+
+  const now = new Date();
+  const dueEmails = pendingEmails.filter((e) => new Date(e.scheduledAt) <= now);
+  if (dueEmails.length === 0) {
+    return { sent: 0, failed: 0, processed: 0 };
+  }
+
+  const settings = await storage.getEmailSettings();
+  if (!settings || !settings.configured) {
+    console.error("[scheduled-emails] Email settings not configured. Marking", dueEmails.length, "scheduled email(s) as failed.");
+    for (const scheduled of dueEmails) {
+      await storage.updateScheduledEmail(scheduled.id, { status: "failed" });
+    }
+    return { sent: 0, failed: dueEmails.length, processed: dueEmails.length };
+  }
+
+  const transporter = nodemailer.createTransport({
+    host: "smtp.mail.me.com",
+    port: 587,
+    secure: false,
+    requireTLS: true,
+    auth: {
+      user: settings.email,
+      pass: settings.appPassword,
+    },
+    tls: {
+      minVersion: "TLSv1.2",
+      ciphers: "HIGH",
+    },
+  });
+
+  let sentCount = 0;
+  let failedCount = 0;
+
+  for (const scheduled of dueEmails) {
+    const [claimed] = await db.update(scheduledEmails)
+      .set({ status: "processing" })
+      .where(and(eq(scheduledEmails.id, scheduled.id), eq(scheduledEmails.status, "pending")))
+      .returning();
+    if (!claimed) continue;
+
+    let coachIds: string[];
+    try {
+      const parsed = JSON.parse(scheduled.coachIds);
+      coachIds = Array.isArray(parsed) ? parsed : [parsed];
+    } catch {
+      coachIds = scheduled.coachIds.split(",").map((s) => s.trim()).filter(Boolean);
+    }
+
+    let allSuccess = true;
+    let anySent = false;
+
+    for (const coachId of coachIds) {
+      const coach = await storage.getCoach(coachId);
+      if (!coach) {
+        console.error(`[scheduled-emails] Coach not found: ${coachId}`);
+        allSuccess = false;
+        continue;
+      }
+
+      const defaultSalutation = "Coach " + (coach.name.includes(" ") ? coach.name.substring(coach.name.indexOf(" ") + 1) : coach.name);
+      const personalizedSubject = scheduled.subject
+        .replace(/\{\{coach_name\}\}/g, coach.name)
+        .replace(/\{\{salutation\}\}/g, coach.salutation || defaultSalutation)
+        .replace(/\{\{school\}\}/g, coach.school)
+        .replace(/\{\{position\}\}/g, coach.position || "Coach");
+
+      const personalizedBody = scheduled.body
+        .replace(/\{\{coach_name\}\}/g, coach.name)
+        .replace(/\{\{salutation\}\}/g, coach.salutation || defaultSalutation)
+        .replace(/\{\{school\}\}/g, coach.school)
+        .replace(/\{\{position\}\}/g, coach.position || "Coach");
+
+      try {
+        await transporter.sendMail({
+          from: settings.email,
+          to: coach.email,
+          subject: personalizedSubject,
+          text: personalizedBody,
+          html: textToHtml(personalizedBody),
+        });
+        anySent = true;
+
+        try {
+          await storage.createContact({
+            coachId: coach.id,
+            date: new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" }),
+            method: "email",
+            subject: personalizedSubject,
+            notes: "Sent via RecruitTrack (scheduled)",
+          });
+        } catch (logError: any) {
+          console.error(`[scheduled-emails] Failed to log contact:`, logError.message);
+        }
+
+        try {
+          if (coach.status === "not_contacted") {
+            await storage.updateCoach(coach.id, { status: "awaiting_response" });
+          }
+        } catch (statusError: any) {
+          console.error(`[scheduled-emails] Failed to update status:`, statusError.message);
+        }
+      } catch (sendError: any) {
+        console.error(`[scheduled-emails] Failed to send to ${coach.email}:`, sendError.message);
+        allSuccess = false;
+      }
+    }
+
+    const finalStatus = (allSuccess && anySent) ? "sent" : "failed";
+    await storage.updateScheduledEmail(scheduled.id, { status: finalStatus });
+
+    if (finalStatus === "sent") sentCount++;
+    else failedCount++;
+  }
+
+  return { sent: sentCount, failed: failedCount, processed: dueEmails.length };
+}
+
 app.get("/api/scheduled-emails", isAuthenticated, async (req, res) => {
   try {
+    try {
+      await processScheduledEmails();
+    } catch (processError) {
+      console.error("[scheduled-emails] Background processing error:", processError);
+    }
+
     const emails = await storage.getScheduledEmails();
     res.json(emails);
   } catch (error) {
@@ -1230,116 +1359,8 @@ app.get("/api/cron/process-scheduled-emails", async (req, res) => {
   }
 
   try {
-    const pendingEmails = await storage.getPendingScheduledEmails();
-
-    if (pendingEmails.length === 0) {
-      return res.json({ message: "No pending scheduled emails", processed: 0 });
-    }
-
-    const now = new Date();
-    const dueEmails = pendingEmails.filter((e) => new Date(e.scheduledAt) <= now);
-
-    if (dueEmails.length === 0) {
-      return res.json({ message: "No due scheduled emails", pending: pendingEmails.length, processed: 0 });
-    }
-
-    const settings = await storage.getEmailSettings();
-    if (!settings || !settings.configured) {
-      console.error("[cron] Email settings not configured. Marking", dueEmails.length, "scheduled email(s) as failed.");
-      for (const scheduled of dueEmails) {
-        await storage.updateScheduledEmail(scheduled.id, { status: "failed" });
-      }
-      return res.json({ message: "Email settings not configured, marked as failed", failed: dueEmails.length });
-    }
-
-    const transporter = nodemailer.createTransport({
-      host: "smtp.mail.me.com",
-      port: 587,
-      secure: false,
-      requireTLS: true,
-      auth: {
-        user: settings.email,
-        pass: settings.appPassword,
-      },
-      tls: {
-        minVersion: "TLSv1.2",
-        ciphers: "HIGH",
-      },
-    });
-
-    let sentCount = 0;
-    let failedCount = 0;
-
-    for (const scheduled of dueEmails) {
-      let coachIds: string[];
-      try {
-        coachIds = JSON.parse(scheduled.coachIds) as string[];
-      } catch {
-        coachIds = scheduled.coachIds.split(",").map((s) => s.trim()).filter(Boolean);
-      }
-
-      let allSuccess = true;
-
-      for (const coachId of coachIds) {
-        const coach = await storage.getCoach(coachId);
-        if (!coach) continue;
-
-        const defaultSalutation = "Coach " + (coach.name.includes(" ") ? coach.name.substring(coach.name.indexOf(" ") + 1) : coach.name);
-        const personalizedSubject = scheduled.subject
-          .replace(/\{\{coach_name\}\}/g, coach.name)
-          .replace(/\{\{salutation\}\}/g, coach.salutation || defaultSalutation)
-          .replace(/\{\{school\}\}/g, coach.school)
-          .replace(/\{\{position\}\}/g, coach.position || "Coach");
-
-        const personalizedBody = scheduled.body
-          .replace(/\{\{coach_name\}\}/g, coach.name)
-          .replace(/\{\{salutation\}\}/g, coach.salutation || defaultSalutation)
-          .replace(/\{\{school\}\}/g, coach.school)
-          .replace(/\{\{position\}\}/g, coach.position || "Coach");
-
-        try {
-          await transporter.sendMail({
-            from: settings.email,
-            to: coach.email,
-            subject: personalizedSubject,
-            text: personalizedBody,
-            html: textToHtml(personalizedBody),
-          });
-
-          try {
-            await storage.createContact({
-              coachId: coach.id,
-              date: new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" }),
-              method: "email",
-              subject: personalizedSubject,
-              notes: "Sent via RecruitTrack (scheduled)",
-            });
-          } catch (logError: any) {
-            console.error(`[cron] Failed to log contact:`, logError.message);
-          }
-
-          try {
-            if (coach.status === "not_contacted") {
-              await storage.updateCoach(coach.id, { status: "awaiting_response" });
-            }
-          } catch (statusError: any) {
-            console.error(`[cron] Failed to update status:`, statusError.message);
-          }
-        } catch (sendError: any) {
-          console.error(`[cron] Failed to send to ${coach.email}:`, sendError.message);
-          allSuccess = false;
-        }
-      }
-
-      await storage.updateScheduledEmail(scheduled.id, {
-        status: allSuccess ? "sent" : "failed",
-      });
-
-      if (allSuccess) sentCount++;
-      else failedCount++;
-    }
-
-    res.json({ message: `Processed ${dueEmails.length} scheduled email(s)`, sent: sentCount, failed: failedCount });
+    const result = await processScheduledEmails();
+    res.json({ message: `Processed scheduled emails`, ...result });
   } catch (error: any) {
     console.error("[cron] Error processing scheduled emails:", error);
     res.status(500).json({ error: error.message || "Failed to process scheduled emails" });

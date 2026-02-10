@@ -119,6 +119,7 @@ export default function Compose() {
 
   const { data: scheduledEmails, isLoading: loadingScheduled } = useQuery<ScheduledEmail[]>({
     queryKey: ["/api/scheduled-emails"],
+    refetchInterval: 30000,
   });
 
   const { data: profiles } = useQuery<RecruitingProfile[]>({
@@ -471,7 +472,7 @@ export default function Compose() {
     });
   };
 
-  const pendingScheduledEmails = scheduledEmails?.filter((e) => e.status === "pending") || [];
+  const pendingScheduledEmails = scheduledEmails?.filter((e) => e.status === "pending" || e.status === "processing") || [];
   const failedScheduledEmails = scheduledEmails?.filter((e) => e.status === "failed") || [];
 
   const getScheduledCoachNames = (coachIdsRaw: string) => {
