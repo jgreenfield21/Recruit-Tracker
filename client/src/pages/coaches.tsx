@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { parseISO } from "date-fns";
@@ -17,6 +17,9 @@ import {
   Download,
   Upload,
   Star,
+  ArrowUp,
+  ArrowDown,
+  ArrowUpDown,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -60,6 +63,30 @@ import { useToast } from "@/hooks/use-toast";
 import type { Coach, Contact, CoachStatus } from "@shared/schema";
 import { coachStatusOptions, divisionOptions } from "@shared/schema";
 
+type SortField = "name" | "school" | "position" | "division" | "status" | "lastContact" | "favorite";
+type SortDirection = "asc" | "desc";
+type SortConfig = { field: SortField; direction: SortDirection };
+
+const divisionOrder: Record<string, number> = {
+  "D1": 0,
+  "D2": 1,
+  "D3": 2,
+  "NAIA": 3,
+  "JUCO": 4,
+  "Other": 5,
+};
+
+const statusOrder: Record<string, number> = {
+  "not_contacted": 0,
+  "contacted": 1,
+  "responded": 2,
+  "interested": 3,
+  "visit_scheduled": 4,
+  "offer": 5,
+  "committed": 6,
+  "not_interested": 7,
+};
+
 export default function Coaches() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
@@ -68,6 +95,11 @@ export default function Coaches() {
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isImportDialogOpen, setIsImportDialogOpen] = useState(false);
   const [editingCoach, setEditingCoach] = useState<Coach | null>(null);
+  const [sortConfigs, setSortConfigs] = useState<SortConfig[]>([
+    { field: "division", direction: "asc" },
+    { field: "school", direction: "asc" },
+    { field: "name", direction: "asc" },
+  ]);
   const { toast } = useToast();
 
   const { data: coaches, isLoading } = useQuery<Coach[]>({
@@ -94,30 +126,75 @@ export default function Coaches() {
       const res = await apiRequest("PATCH", `/api/coaches/${id}/favorite`);
       return res.json();
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/coaches"] });
+    onMutate: async (id: string) => {
+      await queryClient.cancelQueries({ queryKey: ["/api/coaches"] });
+      const previousCoaches = queryClient.getQueryData<Coach[]>(["/api/coaches"]);
+      queryClient.setQueryData<Coach[]>(["/api/coaches"], (old) =>
+        old?.map((c) => (c.id === id ? { ...c, favorite: !c.favorite } : c))
+      );
+      return { previousCoaches };
     },
-    onError: (error: Error) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/coaches"] });
+    onError: (error: Error, _id, context) => {
+      if (context?.previousCoaches) {
+        queryClient.setQueryData(["/api/coaches"], context.previousCoaches);
+      }
       toast({
         title: "Failed to update favorite",
         description: error.message || "Something went wrong. Please try again.",
         variant: "destructive",
       });
     },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/coaches"] });
+    },
   });
+
+  const lastContactMap = useMemo(() => {
+    const map = new Map<string, string | null>();
+    if (!coaches || !contacts) return map;
+    for (const coach of coaches) {
+      const coachContacts = contacts.filter((c) => c.coachId === coach.id);
+      if (coachContacts.length === 0) {
+        map.set(coach.id, null);
+      } else {
+        const sorted = [...coachContacts].sort(
+          (a, b) => parseISO(b.date).getTime() - parseISO(a.date).getTime()
+        );
+        map.set(coach.id, sorted[0].date);
+      }
+    }
+    return map;
+  }, [coaches, contacts]);
 
   if (isLoading) {
     return <LoadingState message="Loading coaches..." />;
   }
 
-  const getLastContactDate = (coachId: string) => {
-    const coachContacts = contacts?.filter((c) => c.coachId === coachId) || [];
-    if (coachContacts.length === 0) return null;
-    const sorted = coachContacts.sort((a, b) => 
-      parseISO(b.date).getTime() - parseISO(a.date).getTime()
-    );
-    return sorted[0].date;
+  const handleSort = (field: SortField) => {
+    setSortConfigs((prev) => {
+      const existingIndex = prev.findIndex((s) => s.field === field);
+      if (existingIndex === 0) {
+        const existing = prev[0];
+        return [
+          { field, direction: existing.direction === "asc" ? "desc" : "asc" },
+          ...prev.slice(1),
+        ];
+      }
+      if (existingIndex > 0) {
+        const updated = prev.filter((s) => s.field !== field);
+        return [{ field, direction: "asc" }, ...updated];
+      }
+      return [{ field, direction: "asc" }, ...prev];
+    });
+  };
+
+  const getSortIcon = (field: SortField) => {
+    const config = sortConfigs.find((s) => s.field === field);
+    if (!config) return <ArrowUpDown className="h-3.5 w-3.5 ml-1 opacity-40" />;
+    const index = sortConfigs.indexOf(config);
+    const opacity = index === 0 ? "opacity-100" : "opacity-60";
+    if (config.direction === "asc") return <ArrowUp className={`h-3.5 w-3.5 ml-1 ${opacity}`} />;
+    return <ArrowDown className={`h-3.5 w-3.5 ml-1 ${opacity}`} />;
   };
 
   const filteredCoaches = coaches?.filter((coach) => {
@@ -130,6 +207,66 @@ export default function Coaches() {
     const matchesFavorite = !favoriteFilter || coach.favorite;
     return matchesSearch && matchesStatus && matchesDivision && matchesFavorite;
   }) || [];
+
+  const sortedCoaches = [...filteredCoaches].sort((a, b) => {
+    for (const { field, direction } of sortConfigs) {
+      const dir = direction === "asc" ? 1 : -1;
+      let cmp = 0;
+
+      switch (field) {
+        case "name":
+          cmp = a.name.localeCompare(b.name);
+          break;
+        case "school":
+          cmp = a.school.localeCompare(b.school);
+          break;
+        case "position":
+          cmp = (a.position || "").localeCompare(b.position || "");
+          break;
+        case "division": {
+          const aDiv = divisionOrder[a.division || ""] ?? 99;
+          const bDiv = divisionOrder[b.division || ""] ?? 99;
+          cmp = aDiv - bDiv;
+          break;
+        }
+        case "status": {
+          const aStatus = statusOrder[a.status] ?? 99;
+          const bStatus = statusOrder[b.status] ?? 99;
+          cmp = aStatus - bStatus;
+          break;
+        }
+        case "lastContact": {
+          const aDate = lastContactMap.get(a.id);
+          const bDate = lastContactMap.get(b.id);
+          if (!aDate && !bDate) cmp = 0;
+          else if (!aDate) cmp = 1;
+          else if (!bDate) cmp = -1;
+          else cmp = aDate.localeCompare(bDate);
+          break;
+        }
+        case "favorite":
+          cmp = (a.favorite ? 0 : 1) - (b.favorite ? 0 : 1);
+          break;
+      }
+
+      if (cmp !== 0) return cmp * dir;
+    }
+    return 0;
+  });
+
+  const SortableHeader = ({ field, children, className }: { field: SortField; children: React.ReactNode; className?: string }) => (
+    <TableHead className={className}>
+      <button
+        type="button"
+        onClick={() => handleSort(field)}
+        className="flex items-center cursor-pointer select-none text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
+        data-testid={`sort-${field}`}
+      >
+        {children}
+        {getSortIcon(field)}
+      </button>
+    </TableHead>
+  );
 
   return (
     <div className="space-y-6">
@@ -265,20 +402,22 @@ export default function Coaches() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="w-[40px]"></TableHead>
-                    <TableHead>Name</TableHead>
-                    <TableHead>School</TableHead>
-                    <TableHead className="hidden md:table-cell">Position</TableHead>
+                    <SortableHeader field="favorite" className="w-[40px]">
+                      <Star className="h-3.5 w-3.5" />
+                    </SortableHeader>
+                    <SortableHeader field="name">Name</SortableHeader>
+                    <SortableHeader field="school">School</SortableHeader>
+                    <SortableHeader field="position" className="hidden md:table-cell">Position</SortableHeader>
                     <TableHead className="hidden md:table-cell">Salutation</TableHead>
-                    <TableHead className="hidden lg:table-cell">Division</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead className="hidden sm:table-cell">Last Contact</TableHead>
+                    <SortableHeader field="division" className="hidden lg:table-cell">Division</SortableHeader>
+                    <SortableHeader field="status">Status</SortableHeader>
+                    <SortableHeader field="lastContact" className="hidden sm:table-cell">Last Contact</SortableHeader>
                     <TableHead className="w-[60px]"></TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredCoaches.map((coach) => {
-                    const lastContact = getLastContactDate(coach.id);
+                  {sortedCoaches.map((coach) => {
+                    const lastContact = lastContactMap.get(coach.id) ?? null;
                     return (
                       <TableRow key={coach.id} data-testid={`row-coach-${coach.id}`}>
                         <TableCell>
