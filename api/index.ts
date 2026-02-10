@@ -644,6 +644,23 @@ app.post("/api/coaches/import", isAuthenticated, async (req, res) => {
   }
 });
 
+app.patch("/api/coaches/:id/favorite", isAuthenticated, async (req, res) => {
+  try {
+    const coach = await storage.getCoach(req.params.id);
+    if (!coach) {
+      return res.status(404).json({ error: "Coach not found" });
+    }
+    const updated = await storage.updateCoach(req.params.id, { favorite: !coach.favorite });
+    if (!updated) {
+      return res.status(500).json({ error: "Failed to update coach" });
+    }
+    res.json(updated);
+  } catch (error: any) {
+    console.error("Failed to toggle favorite:", error?.message || error);
+    res.status(500).json({ error: "Failed to toggle favorite" });
+  }
+});
+
 app.patch("/api/coaches/:id", isAuthenticated, async (req, res) => {
   try {
     const data = insertCoachSchema.partial().parse(req.body);
