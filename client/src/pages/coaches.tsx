@@ -90,14 +90,7 @@ export default function Coaches() {
 
   const toggleFavoriteMutation = useMutation({
     mutationFn: async (id: string) => {
-      const res = await fetch(`/api/coaches/${id}/favorite`, {
-        method: "PATCH",
-        credentials: "include",
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => null);
-        throw new Error(data?.error || res.statusText);
-      }
+      const res = await apiRequest("PATCH", `/api/coaches/${id}/favorite`);
       return res.json();
     },
     onSuccess: () => {
