@@ -122,8 +122,12 @@ export async function registerRoutes(
         return res.status(404).json({ error: "Coach not found" });
       }
       const updated = await storage.updateCoach(req.params.id, { favorite: !coach.favorite });
+      if (!updated) {
+        return res.status(500).json({ error: "Failed to update coach" });
+      }
       res.json(updated);
-    } catch (error) {
+    } catch (error: any) {
+      console.error("Failed to toggle favorite:", error?.message || error);
       res.status(500).json({ error: "Failed to toggle favorite" });
     }
   });

@@ -93,8 +93,13 @@ export default function Coaches() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/coaches"] });
     },
-    onError: () => {
-      toast({ title: "Failed to update favorite", variant: "destructive" });
+    onError: (error: Error) => {
+      const isAuthError = error.message?.includes("401");
+      toast({
+        title: isAuthError ? "Session expired" : "Failed to update favorite",
+        description: isAuthError ? "Please log in again to continue." : "Something went wrong. Please try again.",
+        variant: "destructive",
+      });
     },
   });
 
