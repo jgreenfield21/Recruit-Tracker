@@ -684,9 +684,18 @@ export async function registerRoutes(
   const processScheduledEmails = async () => {
     try {
       const pendingEmails = await storage.getPendingScheduledEmails();
+      
+      if (pendingEmails.length === 0) {
+        return;
+      }
+
       const settings = await storage.getEmailSettings();
       
-      if (!settings || !settings.configured || pendingEmails.length === 0) {
+      if (!settings || !settings.configured) {
+        console.error("[scheduled-emails] Email settings not configured. Marking", pendingEmails.length, "scheduled email(s) as failed.");
+        for (const scheduled of pendingEmails) {
+          await storage.updateScheduledEmail(scheduled.id, { status: "failed" });
+        }
         return;
       }
 

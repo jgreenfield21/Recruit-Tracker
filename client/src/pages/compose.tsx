@@ -11,6 +11,7 @@ import {
   Calendar,
   X,
   AlertCircle,
+  AlertTriangle,
   Search,
   Star,
 } from "lucide-react";
@@ -438,6 +439,10 @@ export default function Compose() {
   };
 
   const handleSchedule = () => {
+    if (!emailSettings?.configured) {
+      toast({ title: "Please configure your iCloud Mail settings first", description: "Go to Settings to set up your email before scheduling.", variant: "destructive" });
+      return;
+    }
     if (selectedCoaches.size === 0) {
       toast({ title: "Please select at least one coach", variant: "destructive" });
       return;
@@ -467,6 +472,7 @@ export default function Compose() {
   };
 
   const pendingScheduledEmails = scheduledEmails?.filter((e) => e.status === "pending") || [];
+  const failedScheduledEmails = scheduledEmails?.filter((e) => e.status === "failed") || [];
 
   const getScheduledCoachNames = (coachIdsJson: string) => {
     try {
@@ -937,6 +943,53 @@ I am reaching out to introduce myself..."
                           onClick={() => cancelScheduleMutation.mutate(email.id)}
                           disabled={cancelScheduleMutation.isPending}
                           data-testid={`button-cancel-scheduled-${email.id}`}
+                        >
+                          <X className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                </ScrollArea>
+              </CardContent>
+            </Card>
+          )}
+
+          {failedScheduledEmails.length > 0 && (
+            <Card data-testid="card-failed-scheduled-emails">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-base text-destructive">
+                  <AlertTriangle className="h-4 w-4" />
+                  Failed Scheduled Emails
+                  <Badge variant="destructive">{failedScheduledEmails.length}</Badge>
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-xs text-muted-foreground mb-3">
+                  These emails failed to send. Make sure your iCloud Mail is configured in Settings.
+                </p>
+                <ScrollArea className="h-[150px]">
+                  <div className="space-y-3">
+                    {failedScheduledEmails.map((email) => (
+                      <div
+                        key={email.id}
+                        className="flex items-center justify-between p-3 rounded-md bg-destructive/10"
+                        data-testid={`failed-scheduled-email-${email.id}`}
+                      >
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium truncate">{email.subject}</p>
+                          <p className="text-xs text-muted-foreground truncate">
+                            To: {getScheduledCoachNames(email.coachIds)}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            Was scheduled for {formatET(email.scheduledAt, "MMM d, yyyy 'at' h:mm a 'ET'")}
+                          </p>
+                        </div>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          onClick={() => cancelScheduleMutation.mutate(email.id)}
+                          disabled={cancelScheduleMutation.isPending}
+                          data-testid={`button-dismiss-failed-${email.id}`}
                         >
                           <X className="h-4 w-4" />
                         </Button>
