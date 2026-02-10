@@ -1169,7 +1169,7 @@ app.post("/api/send-emails", isAuthenticated, async (req, res) => {
         try {
           await storage.createContact({
             coachId,
-            date: new Date().toISOString().split("T")[0],
+            date: new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" }),
             method: "email",
             subject: personalizedSubject,
             notes: `Sent via RecruitTrack`,

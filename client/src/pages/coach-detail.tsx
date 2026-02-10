@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useParams, Link } from "wouter";
-import { format, parseISO } from "date-fns";
+import { parseISO } from "date-fns";
+import { formatET } from "@/lib/date-utils";
 import {
   ArrowLeft,
   Mail,
@@ -260,7 +261,7 @@ export default function CoachDetail() {
                               {getMethodLabel(contact.method)}
                             </p>
                             <span className="text-xs text-muted-foreground">
-                              {format(parseISO(contact.date), "MMM d, yyyy")}
+                              {formatET(contact.date, "MMM d, yyyy")}
                             </span>
                           </div>
                           {contact.subject && (
@@ -309,7 +310,7 @@ export default function CoachDetail() {
                               {reminder.title}
                             </p>
                             <span className="text-xs text-muted-foreground">
-                              Due: {format(parseISO(reminder.dueDate), "MMM d, yyyy")}
+                              Due: {formatET(reminder.dueDate, "MMM d, yyyy")}
                             </span>
                           </div>
                           {reminder.notes && (

@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Link } from "wouter";
-import { format, parseISO } from "date-fns";
+import { parseISO } from "date-fns";
+import { formatET } from "@/lib/date-utils";
 import {
   Plus,
   Search,
@@ -314,7 +315,7 @@ export default function Coaches() {
                         </TableCell>
                         <TableCell className="hidden sm:table-cell">
                           {lastContact
-                            ? format(parseISO(lastContact), "MMM d, yyyy")
+                            ? formatET(lastContact, "MMM d, yyyy")
                             : "Never"}
                         </TableCell>
                         <TableCell>

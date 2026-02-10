@@ -526,7 +526,7 @@ export async function registerRoutes(
             await storage.createContact({
               coachId: coach.id,
               userId: userId,
-              date: new Date().toISOString().split("T")[0],
+              date: new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" }),
               method: "email",
               subject: personalizedSubject,
               notes: "Sent via RecruitTrack",
@@ -734,7 +734,7 @@ export async function registerRoutes(
             try {
               await storage.createContact({
                 coachId: coach.id,
-                date: new Date().toISOString().split("T")[0],
+                date: new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" }),
                 method: "email",
                 subject: personalizedSubject,
                 notes: "Sent via RecruitTrack (scheduled)",

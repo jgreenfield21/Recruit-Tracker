@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { format, parseISO, isBefore, startOfToday, isAfter, addDays } from "date-fns";
+import { parseISO, isBefore, startOfToday, isAfter, addDays } from "date-fns";
+import { formatET } from "@/lib/date-utils";
 import {
   Bell,
   Check,
@@ -135,7 +136,7 @@ export default function Reminders() {
                 className="shrink-0"
               >
                 <Calendar className="h-3 w-3 mr-1" />
-                {format(parseISO(reminder.dueDate), "MMM d, yyyy")}
+                {formatET(reminder.dueDate, "MMM d, yyyy")}
               </Badge>
               <Button
                 variant="ghost"

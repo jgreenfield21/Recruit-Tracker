@@ -2,7 +2,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation } from "@tanstack/react-query";
 import { z } from "zod";
-import { format, addDays } from "date-fns";
+import { addDays } from "date-fns";
 import {
   Form,
   FormControl,
@@ -41,7 +41,7 @@ export function ReminderForm({ coachId, onSuccess }: ReminderFormProps) {
     resolver: zodResolver(formSchema),
     defaultValues: {
       coachId,
-      dueDate: format(addDays(new Date(), 7), "yyyy-MM-dd"),
+      dueDate: addDays(new Date(), 7).toLocaleDateString("en-CA", { timeZone: "America/New_York" }),
       title: "",
       notes: "",
       completed: false,

@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
-import { format, isAfter, isBefore, startOfToday, addDays, parseISO } from "date-fns";
+import { isAfter, isBefore, startOfToday, addDays, parseISO } from "date-fns";
+import { formatET } from "@/lib/date-utils";
 import { useEffect, useRef } from "react";
 import { useNotifications } from "@/hooks/use-notifications";
 import {
@@ -201,7 +202,7 @@ export default function Dashboard() {
                       </span>
                     </div>
                     <span className="text-xs text-destructive font-medium">
-                      {format(parseISO(reminder.dueDate), "MMM d")}
+                      {formatET(reminder.dueDate, "MMM d")}
                     </span>
                   </div>
                 ))}
@@ -242,7 +243,7 @@ export default function Dashboard() {
                       </span>
                     </div>
                     <span className="text-xs text-muted-foreground">
-                      {format(parseISO(reminder.dueDate), "MMM d")}
+                      {formatET(reminder.dueDate, "MMM d")}
                     </span>
                   </div>
                 ))}
@@ -291,7 +292,7 @@ export default function Dashboard() {
                       </span>
                     </div>
                     <span className="text-sm text-muted-foreground">
-                      {format(parseISO(contact.date), "MMM d, yyyy")}
+                      {formatET(contact.date, "MMM d, yyyy")}
                     </span>
                   </div>
                 );

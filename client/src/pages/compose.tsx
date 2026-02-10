@@ -1,6 +1,6 @@
 import { useState, useMemo, useRef, useCallback, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { format, parseISO } from "date-fns";
+import { formatET, toEasternISO } from "@/lib/date-utils";
 import {
   Send,
   Users,
@@ -451,7 +451,7 @@ export default function Compose() {
       return;
     }
     
-    const scheduledAt = new Date(`${scheduledDate}T${scheduledTime}`).toISOString();
+    const scheduledAt = toEasternISO(scheduledDate, scheduledTime);
     
     if (new Date(scheduledAt) <= new Date()) {
       toast({ title: "Scheduled time must be in the future", variant: "destructive" });
@@ -870,7 +870,7 @@ I am reaching out to introduce myself..."
                       />
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="schedule-time">Time</Label>
+                      <Label htmlFor="schedule-time">Time (ET)</Label>
                       <Input
                         id="schedule-time"
                         type="time"
@@ -928,7 +928,7 @@ I am reaching out to introduce myself..."
                             To: {getScheduledCoachNames(email.coachIds)}
                           </p>
                           <p className="text-xs text-muted-foreground">
-                            {format(parseISO(email.scheduledAt), "MMM d, yyyy 'at' h:mm a")}
+                            {formatET(email.scheduledAt, "MMM d, yyyy 'at' h:mm a 'ET'")}
                           </p>
                         </div>
                         <Button

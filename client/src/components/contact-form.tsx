@@ -2,7 +2,6 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation } from "@tanstack/react-query";
 import { z } from "zod";
-import { format } from "date-fns";
 import {
   Form,
   FormControl,
@@ -49,7 +48,7 @@ export function ContactForm({ coachId, onSuccess }: ContactFormProps) {
     resolver: zodResolver(formSchema),
     defaultValues: {
       coachId,
-      date: format(new Date(), "yyyy-MM-dd"),
+      date: new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" }),
       method: "",
       subject: "",
       notes: "",
