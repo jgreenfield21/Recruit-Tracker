@@ -1,5 +1,6 @@
 import { useState, useMemo, useRef, useCallback, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { parseISO } from "date-fns";
 import { formatET, toEasternISO } from "@/lib/date-utils";
 import {
   Send,
@@ -41,7 +42,7 @@ import { EmptyState } from "@/components/empty-state";
 import { LoadingState } from "@/components/loading-state";
 import { apiRequest, queryClient, getAuthHeaders } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import type { Coach, EmailTemplate, EmailSettings, ScheduledEmail, RecruitingProfile } from "@shared/schema";
+import type { Coach, Contact, EmailTemplate, EmailSettings, ScheduledEmail, RecruitingProfile } from "@shared/schema";
 import { divisionOptions } from "@shared/schema";
 import {
   Popover,
@@ -68,6 +69,7 @@ export default function Compose() {
   const [coachSearch, setCoachSearch] = useState("");
   const [divisionFilter, setDivisionFilter] = useState("all");
   const [favoriteFilter, setFavoriteFilter] = useState(false);
+  const [lastContactedFilter, setLastContactedFilter] = useState("none");
   const [sendProgress, setSendProgress] = useState<{ sent: number; total: number; failed: number; startTime: number; aborted: boolean } | null>(null);
   const [isSending, setIsSending] = useState(false);
   const [showLargeSendWarning, setShowLargeSendWarning] = useState(false);
@@ -122,15 +124,41 @@ export default function Compose() {
     refetchInterval: 30000,
   });
 
+  const { data: contacts } = useQuery<Contact[]>({
+    queryKey: ["/api/contacts"],
+  });
+
   const { data: profiles } = useQuery<RecruitingProfile[]>({
     queryKey: ["/api/recruiting-profiles"],
   });
+
+  const lastContactDateMap = useMemo(() => {
+    const map = new Map<string, Date>();
+    if (!contacts) return map;
+    for (const contact of contacts) {
+      const date = parseISO(contact.date);
+      const existing = map.get(contact.coachId);
+      if (!existing || date > existing) {
+        map.set(contact.coachId, date);
+      }
+    }
+    return map;
+  }, [contacts]);
 
   const filteredCoaches = useMemo(() => {
     if (!coaches) return [];
     const filtered = coaches.filter((coach) => {
       if (favoriteFilter && !coach.favorite) return false;
       if (divisionFilter !== "all" && coach.division !== divisionFilter) return false;
+      if (lastContactedFilter !== "none") {
+        const days = parseInt(lastContactedFilter, 10);
+        const lastDate = lastContactDateMap.get(coach.id);
+        if (lastDate) {
+          const cutoff = new Date();
+          cutoff.setDate(cutoff.getDate() - days);
+          if (lastDate >= cutoff) return false;
+        }
+      }
       if (coachSearch.trim()) {
         const q = coachSearch.toLowerCase();
         return (
@@ -147,7 +175,7 @@ export default function Compose() {
       if (!a.favorite && b.favorite) return 1;
       return 0;
     });
-  }, [coaches, coachSearch, divisionFilter, favoriteFilter]);
+  }, [coaches, coachSearch, divisionFilter, favoriteFilter, lastContactedFilter, lastContactDateMap]);
 
   const insertProfileLink = (profile: RecruitingProfile) => {
     const linkText = `[${profile.name}](${profile.url})`;
@@ -535,37 +563,56 @@ export default function Compose() {
                 />
               ) : (
                 <>
-                  <div className="flex items-center gap-2 mb-3">
-                    <div className="relative flex-1">
-                      <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                      <Input
-                        placeholder="Search by name, school, email..."
-                        value={coachSearch}
-                        onChange={(e) => setCoachSearch(e.target.value)}
-                        className="pl-9"
-                        data-testid="input-coach-search"
-                      />
+                  <div className="flex flex-col gap-2 mb-3">
+                    <div className="flex items-center gap-2">
+                      <div className="relative flex-1">
+                        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                        <Input
+                          placeholder="Search by name, school, email..."
+                          value={coachSearch}
+                          onChange={(e) => setCoachSearch(e.target.value)}
+                          className="pl-9"
+                          data-testid="input-coach-search"
+                        />
+                      </div>
+                      <Button
+                        variant={favoriteFilter ? "default" : "outline"}
+                        size="icon"
+                        onClick={() => setFavoriteFilter(!favoriteFilter)}
+                        className="toggle-elevate"
+                        data-testid="button-favorite-filter"
+                      >
+                        <Star className={`h-4 w-4 ${favoriteFilter ? "fill-current" : ""}`} />
+                      </Button>
                     </div>
-                    <Button
-                      variant={favoriteFilter ? "default" : "outline"}
-                      size="icon"
-                      onClick={() => setFavoriteFilter(!favoriteFilter)}
-                      className="toggle-elevate"
-                      data-testid="button-favorite-filter"
-                    >
-                      <Star className={`h-4 w-4 ${favoriteFilter ? "fill-current" : ""}`} />
-                    </Button>
-                    <Select value={divisionFilter} onValueChange={setDivisionFilter}>
-                      <SelectTrigger className="w-[140px]" data-testid="select-division-filter">
-                        <SelectValue placeholder="Division" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">All Divisions</SelectItem>
-                        {divisionOptions.map((d) => (
-                          <SelectItem key={d.value} value={d.value}>{d.label}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <Select value={divisionFilter} onValueChange={setDivisionFilter}>
+                        <SelectTrigger className="w-[140px]" data-testid="select-division-filter">
+                          <SelectValue placeholder="Division" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All Divisions</SelectItem>
+                          {divisionOptions.map((d) => (
+                            <SelectItem key={d.value} value={d.value}>{d.label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <Select value={lastContactedFilter} onValueChange={setLastContactedFilter}>
+                        <SelectTrigger className="w-[200px]" data-testid="select-last-contacted-filter">
+                          <Clock className="h-4 w-4 mr-2 flex-shrink-0" />
+                          <SelectValue placeholder="Last contacted" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">No time filter</SelectItem>
+                          <SelectItem value="1">Not contacted in 1 day</SelectItem>
+                          <SelectItem value="2">Not contacted in 2 days</SelectItem>
+                          <SelectItem value="3">Not contacted in 3 days</SelectItem>
+                          <SelectItem value="5">Not contacted in 5 days</SelectItem>
+                          <SelectItem value="7">Not contacted in 7 days</SelectItem>
+                          <SelectItem value="14">Not contacted in 14 days</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
                   </div>
                   <div className="flex items-center justify-between gap-2 mb-2">
                     <div className="flex items-center gap-2">
