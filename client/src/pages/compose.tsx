@@ -15,6 +15,8 @@ import {
   AlertTriangle,
   Search,
   Star,
+  CheckCircle2,
+  XCircle,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -57,6 +59,23 @@ interface AttachmentFile {
   file: File;
 }
 
+interface SendResult {
+  coachId: string;
+  coachName: string;
+  coachEmail: string;
+  school: string;
+  success: boolean;
+  error?: string;
+}
+
+interface SendReport {
+  results: SendResult[];
+  totalSent: number;
+  totalFailed: number;
+  aborted: boolean;
+  timestamp: Date;
+}
+
 export default function Compose() {
   const [selectedCoaches, setSelectedCoaches] = useState<Set<string>>(new Set());
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>("");
@@ -73,6 +92,7 @@ export default function Compose() {
   const [sendProgress, setSendProgress] = useState<{ sent: number; total: number; failed: number; startTime: number; aborted: boolean } | null>(null);
   const [isSending, setIsSending] = useState(false);
   const [showLargeSendWarning, setShowLargeSendWarning] = useState(false);
+  const [sendReport, setSendReport] = useState<SendReport | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
 
@@ -378,13 +398,17 @@ export default function Compose() {
     setShowLargeSendWarning(false);
 
     setIsSending(true);
+    setSendReport(null);
     let totalSent = 0;
+    const allResults: SendResult[] = [];
+
+    const coachLookup = new Map<string, Coach>();
+    coaches?.forEach((c) => coachLookup.set(c.id, c));
 
     try {
       const allCoachIds = Array.from(selectedCoaches);
       const total = allCoachIds.length;
       let totalFailed = 0;
-      const allFailures: string[] = [];
       const startTime = Date.now();
 
       setSendProgress({ sent: 0, total, failed: 0, startTime, aborted: false });
@@ -406,24 +430,57 @@ export default function Compose() {
         try {
           const result = await sendBatch(batches[i], subject, body, attachmentData);
           const results = Array.isArray(result?.results) ? result.results : [];
+          for (const r of results) {
+            const coach = coachLookup.get(r.coachId);
+            allResults.push({
+              coachId: r.coachId,
+              coachName: coach?.name || "Unknown",
+              coachEmail: coach?.email || "Unknown",
+              school: coach?.school || "Unknown",
+              success: r.success,
+              error: r.error,
+            });
+          }
           const batchSuccess = results.filter((r: any) => r.success).length;
-          const batchFail = results.filter((r: any) => !r.success);
+          const batchFail = results.filter((r: any) => !r.success).length;
           totalSent += batchSuccess;
-          totalFailed += batchFail.length;
-          batchFail.forEach((f: any) => allFailures.push(f.error || "Unknown error"));
+          totalFailed += batchFail;
           setSendProgress({ sent: totalSent, total, failed: totalFailed, startTime, aborted: false });
 
           if (result?.rateLimited) {
-            const remaining = batches.slice(i + 1).reduce((sum, b) => sum + b.length, 0);
+            const remainingBatches = batches.slice(i + 1);
+            for (const batch of remainingBatches) {
+              for (const coachId of batch) {
+                const coach = coachLookup.get(coachId);
+                allResults.push({
+                  coachId,
+                  coachName: coach?.name || "Unknown",
+                  coachEmail: coach?.email || "Unknown",
+                  school: coach?.school || "Unknown",
+                  success: false,
+                  error: "Skipped: iCloud rate limit reached",
+                });
+              }
+            }
+            const remaining = remainingBatches.reduce((sum, b) => sum + b.length, 0);
             totalFailed += remaining;
             aborted = true;
             setSendProgress({ sent: totalSent, total, failed: totalFailed, startTime, aborted: true });
-            allFailures.push(`Stopped early: iCloud rate limit reached. ${remaining} emails skipped.`);
             break;
           }
         } catch (error: any) {
+          for (const coachId of batches[i]) {
+            const coach = coachLookup.get(coachId);
+            allResults.push({
+              coachId,
+              coachName: coach?.name || "Unknown",
+              coachEmail: coach?.email || "Unknown",
+              school: coach?.school || "Unknown",
+              success: false,
+              error: error.message || "Batch request failed",
+            });
+          }
           totalFailed += batches[i].length;
-          allFailures.push(error.message || "Batch failed");
           setSendProgress({ sent: totalSent, total, failed: totalFailed, startTime, aborted: false });
         }
       }
@@ -431,22 +488,30 @@ export default function Compose() {
       queryClient.invalidateQueries({ queryKey: ["/api/contacts"] });
       queryClient.invalidateQueries({ queryKey: ["/api/coaches"] });
 
+      setSendReport({
+        results: allResults,
+        totalSent,
+        totalFailed,
+        aborted,
+        timestamp: new Date(),
+      });
+
       if (aborted) {
         toast({
           title: `Sent ${totalSent}, stopped due to rate limiting`,
-          description: `iCloud limits how many emails you can send per hour. ${totalFailed} were not sent. Try again later for the remaining coaches.`,
+          description: "See the send report below for details on each coach.",
           variant: "destructive",
         });
       } else if (totalFailed > 0 && totalSent > 0) {
         toast({
           title: `${totalSent} sent, ${totalFailed} failed`,
-          description: allFailures.slice(0, 3).join("; ") + (allFailures.length > 3 ? `... and ${allFailures.length - 3} more` : ""),
+          description: "See the send report below for details.",
           variant: "destructive",
         });
       } else if (totalFailed > 0 && totalSent === 0) {
         toast({
           title: "Failed to send emails",
-          description: allFailures[0] || "Please check your email settings.",
+          description: "See the send report below for details.",
           variant: "destructive",
         });
       } else {
@@ -961,6 +1026,81 @@ I am reaching out to introduce myself..."
               </Tabs>
             </CardContent>
           </Card>
+
+          {sendReport && (
+            <Card data-testid="card-send-report">
+              <CardHeader className="flex flex-row items-center justify-between gap-2">
+                <CardTitle className="flex items-center gap-2 text-base">
+                  {sendReport.totalFailed === 0 ? (
+                    <CheckCircle2 className="h-4 w-4 text-green-600" />
+                  ) : sendReport.totalSent > 0 ? (
+                    <AlertTriangle className="h-4 w-4 text-yellow-600" />
+                  ) : (
+                    <XCircle className="h-4 w-4 text-destructive" />
+                  )}
+                  Send Report
+                </CardTitle>
+                <div className="flex items-center gap-2">
+                  <Badge variant="secondary" data-testid="badge-report-sent">
+                    {sendReport.totalSent} sent
+                  </Badge>
+                  {sendReport.totalFailed > 0 && (
+                    <Badge variant="destructive" data-testid="badge-report-failed">
+                      {sendReport.totalFailed} failed
+                    </Badge>
+                  )}
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => setSendReport(null)}
+                    data-testid="button-dismiss-report"
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {sendReport.aborted && (
+                  <Alert variant="destructive" className="mb-3">
+                    <AlertCircle className="h-4 w-4" />
+                    <AlertDescription>
+                      Sending was stopped early due to iCloud rate limiting. Some coaches were skipped.
+                    </AlertDescription>
+                  </Alert>
+                )}
+                <ScrollArea className="h-[250px]">
+                  <div className="space-y-1">
+                    {sendReport.results.map((result, idx) => (
+                      <div
+                        key={idx}
+                        className="flex items-center gap-3 p-2 rounded-md"
+                        data-testid={`send-result-${result.coachId}`}
+                      >
+                        {result.success ? (
+                          <CheckCircle2 className="h-4 w-4 text-green-600 flex-shrink-0" />
+                        ) : (
+                          <XCircle className="h-4 w-4 text-destructive flex-shrink-0" />
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm font-medium truncate">
+                            {result.coachName}
+                          </div>
+                          <div className="text-xs text-muted-foreground truncate">
+                            {result.school} - {result.coachEmail}
+                          </div>
+                        </div>
+                        {!result.success && result.error && (
+                          <span className="text-xs text-destructive max-w-[200px] truncate flex-shrink-0">
+                            {result.error}
+                          </span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </ScrollArea>
+              </CardContent>
+            </Card>
+          )}
 
           {pendingScheduledEmails.length > 0 && (
             <Card data-testid="card-scheduled-emails">
