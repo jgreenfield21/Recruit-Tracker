@@ -691,11 +691,27 @@ export default function Compose() {
                         Select All ({filteredCoaches.length})
                       </Label>
                     </div>
-                    {selectedCoaches.size > 0 && (
-                      <span className="text-xs text-muted-foreground" data-testid="text-selected-count">
-                        {selectedCoaches.size} total selected
-                      </span>
-                    )}
+                    <div className="flex items-center gap-2">
+                      {selectedCoaches.size > 100 && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-6 text-xs px-2"
+                          onClick={() => {
+                            const limited = new Set(Array.from(selectedCoaches).slice(0, 100));
+                            setSelectedCoaches(limited);
+                          }}
+                          data-testid="button-limit-100"
+                        >
+                          Limit to 100
+                        </Button>
+                      )}
+                      {selectedCoaches.size > 0 && (
+                        <span className="text-xs text-muted-foreground" data-testid="text-selected-count">
+                          {selectedCoaches.size} selected
+                        </span>
+                      )}
+                    </div>
                   </div>
                   <ScrollArea className="h-[200px]">
                     <div className="space-y-1">
