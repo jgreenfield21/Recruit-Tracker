@@ -159,6 +159,7 @@ type RecruitingProfile = typeof recruitingProfiles.$inferSelect;
 
 const incomingEmails = pgTable("incoming_emails", {
   id: varchar("id", { length: 36 }).primaryKey(),
+  userId: varchar("user_id", { length: 36 }),
   messageId: text("message_id"),
   coachId: varchar("coach_id", { length: 36 }),
   fromEmail: text("from_email").notNull(),
@@ -263,6 +264,7 @@ async function initializeDatabase() {
       
       CREATE TABLE IF NOT EXISTS incoming_emails (
         id VARCHAR(36) PRIMARY KEY,
+        user_id VARCHAR(36),
         message_id TEXT,
         coach_id VARCHAR(36),
         from_email TEXT NOT NULL,
@@ -273,6 +275,7 @@ async function initializeDatabase() {
         received_at TEXT NOT NULL,
         is_read BOOLEAN NOT NULL DEFAULT FALSE
       );
+      ALTER TABLE incoming_emails ADD COLUMN IF NOT EXISTS user_id VARCHAR(36);
 
       CREATE TABLE IF NOT EXISTS sessions (
         sid VARCHAR PRIMARY KEY,
@@ -463,39 +466,39 @@ class DatabaseStorage {
     return true;
   }
 
-  async getIncomingEmails(): Promise<IncomingEmail[]> {
-    return await db.select().from(incomingEmails).orderBy(sql`received_at DESC`);
+  async getIncomingEmails(userId: string): Promise<IncomingEmail[]> {
+    return await db.select().from(incomingEmails).where(eq(incomingEmails.userId, userId)).orderBy(sql`received_at DESC`);
   }
 
-  async getIncomingEmail(id: string): Promise<IncomingEmail | undefined> {
-    const [email] = await db.select().from(incomingEmails).where(eq(incomingEmails.id, id));
+  async getIncomingEmail(id: string, userId: string): Promise<IncomingEmail | undefined> {
+    const [email] = await db.select().from(incomingEmails).where(and(eq(incomingEmails.id, id), eq(incomingEmails.userId, userId)));
     return email;
   }
 
-  async getIncomingEmailByMessageId(messageId: string): Promise<IncomingEmail | undefined> {
-    const [email] = await db.select().from(incomingEmails).where(eq(incomingEmails.messageId, messageId));
+  async getIncomingEmailByMessageId(messageId: string, userId: string): Promise<IncomingEmail | undefined> {
+    const [email] = await db.select().from(incomingEmails).where(and(eq(incomingEmails.messageId, messageId), eq(incomingEmails.userId, userId)));
     return email;
   }
 
-  async createIncomingEmail(data: { messageId: string; coachId: string; fromEmail: string; fromName: string; subject: string; bodyText: string; bodyHtml: string; receivedAt: string; isRead: boolean }): Promise<IncomingEmail> {
+  async createIncomingEmail(data: { userId: string; messageId: string; coachId: string; fromEmail: string; fromName: string; subject: string; bodyText: string; bodyHtml: string; receivedAt: string; isRead: boolean }): Promise<IncomingEmail> {
     const id = randomUUID();
     const [newEmail] = await db.insert(incomingEmails).values({ ...data, id }).returning();
     return newEmail;
   }
 
-  async markIncomingEmailRead(id: string): Promise<IncomingEmail | undefined> {
-    const [updated] = await db.update(incomingEmails).set({ isRead: true }).where(eq(incomingEmails.id, id)).returning();
+  async markIncomingEmailRead(id: string, userId: string): Promise<IncomingEmail | undefined> {
+    const [updated] = await db.update(incomingEmails).set({ isRead: true }).where(and(eq(incomingEmails.id, id), eq(incomingEmails.userId, userId))).returning();
     return updated;
   }
 
-  async getUnreadIncomingEmailCount(): Promise<number> {
-    const result = await db.select({ count: sql<number>`count(*)` }).from(incomingEmails).where(eq(incomingEmails.isRead, false));
+  async getUnreadIncomingEmailCount(userId: string): Promise<number> {
+    const result = await db.select({ count: sql<number>`count(*)` }).from(incomingEmails).where(and(eq(incomingEmails.isRead, false), eq(incomingEmails.userId, userId)));
     return Number(result[0]?.count || 0);
   }
 
-  async deleteIncomingEmail(id: string): Promise<boolean> {
-    await db.delete(incomingEmails).where(eq(incomingEmails.id, id));
-    return true;
+  async deleteIncomingEmail(id: string, userId: string): Promise<boolean> {
+    const result = await db.delete(incomingEmails).where(and(eq(incomingEmails.id, id), eq(incomingEmails.userId, userId))).returning();
+    return result.length > 0;
   }
 }
 
@@ -1067,6 +1070,7 @@ app.delete("/api/recruiting-profiles/:id", isAuthenticated, async (req, res) => 
 // Inbox - Sync via IMAP
 app.post("/api/sync-inbox", isAuthenticated, async (req: any, res) => {
   try {
+    const userId = req.user?.uid || req.user?.claims?.sub;
     const settings = await storage.getEmailSettings();
     if (!settings || !settings.configured) {
       return res.status(400).json({ error: "Email not configured. Please set up your iCloud Mail settings first." });
@@ -1092,15 +1096,14 @@ app.post("/api/sync-inbox", isAuthenticated, async (req: any, res) => {
       await client.connect();
       const lock = await client.getMailboxLock("INBOX");
       try {
-        const mailbox = client.mailbox;
-        const totalMessages = (mailbox as any)?.exists || 0;
+        const totalMessages = client.mailbox?.exists ?? 0;
         const startSeq = Math.max(1, totalMessages - 199);
         const messages = client.fetch(`${startSeq}:*`, { envelope: true, source: true, uid: true });
         for await (const msg of messages) {
           const envelope = msg.envelope;
           if (!envelope) continue;
           const messageId = envelope.messageId || `uid-${msg.uid}`;
-          const existing = await storage.getIncomingEmailByMessageId(messageId);
+          const existing = await storage.getIncomingEmailByMessageId(messageId, userId);
           if (existing) continue;
           const fromAddr = envelope.from?.[0];
           if (!fromAddr) continue;
@@ -1119,6 +1122,7 @@ app.post("/api/sync-inbox", isAuthenticated, async (req: any, res) => {
             } catch { bodyText = msg.source.toString().substring(0, 5000); }
           }
           await storage.createIncomingEmail({
+            userId,
             messageId,
             coachId: coachMatch.id,
             fromEmail,
@@ -1143,9 +1147,10 @@ app.post("/api/sync-inbox", isAuthenticated, async (req: any, res) => {
   }
 });
 
-app.get("/api/inbox", isAuthenticated, async (req, res) => {
+app.get("/api/inbox", isAuthenticated, async (req: any, res) => {
   try {
-    const emails = await storage.getIncomingEmails();
+    const userId = req.user?.uid || req.user?.claims?.sub;
+    const emails = await storage.getIncomingEmails(userId);
     const allCoaches = await storage.getCoaches();
     const coachMap = new Map(allCoaches.map(c => [c.id, c]));
     const enriched = emails.map(email => {
@@ -1158,18 +1163,20 @@ app.get("/api/inbox", isAuthenticated, async (req, res) => {
   }
 });
 
-app.get("/api/inbox/unread-count", isAuthenticated, async (req, res) => {
+app.get("/api/inbox/unread-count", isAuthenticated, async (req: any, res) => {
   try {
-    const count = await storage.getUnreadIncomingEmailCount();
+    const userId = req.user?.uid || req.user?.claims?.sub;
+    const count = await storage.getUnreadIncomingEmailCount(userId);
     res.json({ count });
   } catch (error) {
     res.status(500).json({ error: "Failed to fetch unread count" });
   }
 });
 
-app.patch("/api/inbox/:id/read", isAuthenticated, async (req, res) => {
+app.patch("/api/inbox/:id/read", isAuthenticated, async (req: any, res) => {
   try {
-    const email = await storage.markIncomingEmailRead(req.params.id);
+    const userId = req.user?.uid || req.user?.claims?.sub;
+    const email = await storage.markIncomingEmailRead(req.params.id, userId);
     if (!email) return res.status(404).json({ error: "Email not found" });
     res.json(email);
   } catch (error) {
@@ -1179,9 +1186,10 @@ app.patch("/api/inbox/:id/read", isAuthenticated, async (req, res) => {
 
 app.post("/api/inbox/:id/reply", isAuthenticated, async (req: any, res) => {
   try {
+    const userId = req.user?.uid || req.user?.claims?.sub;
     const { body: replyBody } = req.body;
     if (!replyBody || !replyBody.trim()) return res.status(400).json({ error: "Reply body is required" });
-    const incomingEmail = await storage.getIncomingEmail(req.params.id);
+    const incomingEmail = await storage.getIncomingEmail(req.params.id, userId);
     if (!incomingEmail) return res.status(404).json({ error: "Email not found" });
     const settings = await storage.getEmailSettings();
     if (!settings || !settings.configured) return res.status(400).json({ error: "Email not configured" });
@@ -1197,7 +1205,6 @@ app.post("/api/inbox/:id/reply", isAuthenticated, async (req: any, res) => {
       inReplyTo: incomingEmail.messageId || undefined, references: incomingEmail.messageId || undefined,
     });
     if (incomingEmail.coachId) {
-      const userId = (req.user as any)?.uid || (req.user as any)?.claims?.sub;
       try { await storage.createContact({ coachId: incomingEmail.coachId, userId, date: new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" }), method: "email", subject: replySubject, notes: "Reply sent via RecruitTrack Inbox" }); } catch {}
       try { const coach = await storage.getCoach(incomingEmail.coachId); if (coach?.status === "not_contacted") await storage.updateCoach(incomingEmail.coachId, { status: "contacted" }); } catch {}
     }
@@ -1207,9 +1214,10 @@ app.post("/api/inbox/:id/reply", isAuthenticated, async (req: any, res) => {
   }
 });
 
-app.delete("/api/inbox/:id", isAuthenticated, async (req, res) => {
+app.delete("/api/inbox/:id", isAuthenticated, async (req: any, res) => {
   try {
-    const deleted = await storage.deleteIncomingEmail(req.params.id);
+    const userId = req.user?.uid || req.user?.claims?.sub;
+    const deleted = await storage.deleteIncomingEmail(req.params.id, userId);
     if (!deleted) return res.status(404).json({ error: "Email not found" });
     res.status(204).send();
   } catch (error) {

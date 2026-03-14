@@ -579,8 +579,9 @@ export async function registerRoutes(
   });
 
   // Inbox - Sync via IMAP
-  app.post("/api/sync-inbox", isAuthenticated, async (req, res) => {
+  app.post("/api/sync-inbox", isAuthenticated, async (req: any, res) => {
     try {
+      const userId = req.user?.uid || req.user?.claims?.sub;
       const settings = await storage.getEmailSettings();
       if (!settings || !settings.configured) {
         return res.status(400).json({ error: "Email not configured. Please set up your iCloud Mail settings first." });
@@ -611,8 +612,7 @@ export async function registerRoutes(
 
         const lock = await client.getMailboxLock("INBOX");
         try {
-          const mailbox = client.mailbox;
-          const totalMessages = mailbox?.exists || 0;
+          const totalMessages = client.mailbox?.exists ?? 0;
           const startSeq = Math.max(1, totalMessages - 199);
           const range = `${startSeq}:*`;
 
@@ -629,7 +629,7 @@ export async function registerRoutes(
 
             const messageId = envelope.messageId || `uid-${msg.uid}`;
 
-            const existing = await storage.getIncomingEmailByMessageId(messageId);
+            const existing = await storage.getIncomingEmailByMessageId(messageId, userId);
             if (existing) continue;
 
             const fromAddr = envelope.from?.[0];
@@ -662,6 +662,7 @@ export async function registerRoutes(
               : new Date().toISOString();
 
             await storage.createIncomingEmail({
+              userId,
               messageId,
               coachId: coachMatch.id,
               fromEmail,
@@ -698,9 +699,10 @@ export async function registerRoutes(
   });
 
   // Inbox - List messages
-  app.get("/api/inbox", isAuthenticated, async (req, res) => {
+  app.get("/api/inbox", isAuthenticated, async (req: any, res) => {
     try {
-      const emails = await storage.getIncomingEmails();
+      const userId = req.user?.uid || req.user?.claims?.sub;
+      const emails = await storage.getIncomingEmails(userId);
       const coaches = await storage.getCoaches();
       const coachMap = new Map(coaches.map(c => [c.id, c]));
 
@@ -720,9 +722,10 @@ export async function registerRoutes(
   });
 
   // Inbox - Unread count
-  app.get("/api/inbox/unread-count", isAuthenticated, async (req, res) => {
+  app.get("/api/inbox/unread-count", isAuthenticated, async (req: any, res) => {
     try {
-      const count = await storage.getUnreadIncomingEmailCount();
+      const userId = req.user?.uid || req.user?.claims?.sub;
+      const count = await storage.getUnreadIncomingEmailCount(userId);
       res.json({ count });
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch unread count" });
@@ -730,9 +733,10 @@ export async function registerRoutes(
   });
 
   // Inbox - Mark as read
-  app.patch("/api/inbox/:id/read", isAuthenticated, async (req, res) => {
+  app.patch("/api/inbox/:id/read", isAuthenticated, async (req: any, res) => {
     try {
-      const email = await storage.markIncomingEmailRead(req.params.id);
+      const userId = req.user?.uid || req.user?.claims?.sub;
+      const email = await storage.markIncomingEmailRead(req.params.id, userId);
       if (!email) {
         return res.status(404).json({ error: "Email not found" });
       }
@@ -745,12 +749,13 @@ export async function registerRoutes(
   // Inbox - Reply
   app.post("/api/inbox/:id/reply", isAuthenticated, async (req: any, res) => {
     try {
+      const userId = req.user?.uid || req.user?.claims?.sub;
       const { body: replyBody } = req.body;
       if (!replyBody || !replyBody.trim()) {
         return res.status(400).json({ error: "Reply body is required" });
       }
 
-      const incomingEmail = await storage.getIncomingEmail(req.params.id);
+      const incomingEmail = await storage.getIncomingEmail(req.params.id, userId);
       if (!incomingEmail) {
         return res.status(404).json({ error: "Email not found" });
       }
@@ -790,7 +795,6 @@ export async function registerRoutes(
       });
 
       if (incomingEmail.coachId) {
-        const userId = (req.user as any)?.uid || (req.user as any)?.claims?.sub;
         try {
           await storage.createContact({
             coachId: incomingEmail.coachId,
@@ -822,9 +826,10 @@ export async function registerRoutes(
   });
 
   // Inbox - Delete
-  app.delete("/api/inbox/:id", isAuthenticated, async (req, res) => {
+  app.delete("/api/inbox/:id", isAuthenticated, async (req: any, res) => {
     try {
-      const deleted = await storage.deleteIncomingEmail(req.params.id);
+      const userId = req.user?.uid || req.user?.claims?.sub;
+      const deleted = await storage.deleteIncomingEmail(req.params.id, userId);
       if (!deleted) {
         return res.status(404).json({ error: "Email not found" });
       }

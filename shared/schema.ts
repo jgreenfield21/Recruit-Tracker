@@ -146,6 +146,7 @@ export type User = typeof users.$inferSelect;
 
 export const incomingEmails = pgTable("incoming_emails", {
   id: varchar("id", { length: 36 }).primaryKey(),
+  userId: varchar("user_id", { length: 36 }),
   messageId: text("message_id"),
   coachId: varchar("coach_id", { length: 36 }),
   fromEmail: text("from_email").notNull(),

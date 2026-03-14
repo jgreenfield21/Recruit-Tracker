@@ -72,13 +72,13 @@ export interface IStorage {
   updateRecruitingProfile(id: string, profile: Partial<InsertRecruitingProfile>): Promise<RecruitingProfile | undefined>;
   deleteRecruitingProfile(id: string): Promise<boolean>;
 
-  getIncomingEmails(): Promise<IncomingEmail[]>;
-  getIncomingEmail(id: string): Promise<IncomingEmail | undefined>;
-  getIncomingEmailByMessageId(messageId: string): Promise<IncomingEmail | undefined>;
+  getIncomingEmails(userId: string): Promise<IncomingEmail[]>;
+  getIncomingEmail(id: string, userId: string): Promise<IncomingEmail | undefined>;
+  getIncomingEmailByMessageId(messageId: string, userId: string): Promise<IncomingEmail | undefined>;
   createIncomingEmail(email: InsertIncomingEmail): Promise<IncomingEmail>;
-  markIncomingEmailRead(id: string): Promise<IncomingEmail | undefined>;
-  getUnreadIncomingEmailCount(): Promise<number>;
-  deleteIncomingEmail(id: string): Promise<boolean>;
+  markIncomingEmailRead(id: string, userId: string): Promise<IncomingEmail | undefined>;
+  getUnreadIncomingEmailCount(userId: string): Promise<number>;
+  deleteIncomingEmail(id: string, userId: string): Promise<boolean>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -304,17 +304,17 @@ export class DatabaseStorage implements IStorage {
     return result.length > 0;
   }
 
-  async getIncomingEmails(): Promise<IncomingEmail[]> {
-    return db.select().from(incomingEmails).orderBy(desc(incomingEmails.receivedAt));
+  async getIncomingEmails(userId: string): Promise<IncomingEmail[]> {
+    return db.select().from(incomingEmails).where(eq(incomingEmails.userId, userId)).orderBy(desc(incomingEmails.receivedAt));
   }
 
-  async getIncomingEmail(id: string): Promise<IncomingEmail | undefined> {
-    const [email] = await db.select().from(incomingEmails).where(eq(incomingEmails.id, id));
+  async getIncomingEmail(id: string, userId: string): Promise<IncomingEmail | undefined> {
+    const [email] = await db.select().from(incomingEmails).where(and(eq(incomingEmails.id, id), eq(incomingEmails.userId, userId)));
     return email;
   }
 
-  async getIncomingEmailByMessageId(messageId: string): Promise<IncomingEmail | undefined> {
-    const [email] = await db.select().from(incomingEmails).where(eq(incomingEmails.messageId, messageId));
+  async getIncomingEmailByMessageId(messageId: string, userId: string): Promise<IncomingEmail | undefined> {
+    const [email] = await db.select().from(incomingEmails).where(and(eq(incomingEmails.messageId, messageId), eq(incomingEmails.userId, userId)));
     return email;
   }
 
@@ -327,22 +327,22 @@ export class DatabaseStorage implements IStorage {
     return newEmail;
   }
 
-  async markIncomingEmailRead(id: string): Promise<IncomingEmail | undefined> {
+  async markIncomingEmailRead(id: string, userId: string): Promise<IncomingEmail | undefined> {
     const [updated] = await db
       .update(incomingEmails)
       .set({ isRead: true })
-      .where(eq(incomingEmails.id, id))
+      .where(and(eq(incomingEmails.id, id), eq(incomingEmails.userId, userId)))
       .returning();
     return updated;
   }
 
-  async getUnreadIncomingEmailCount(): Promise<number> {
-    const result = await db.select({ count: sql<number>`count(*)` }).from(incomingEmails).where(eq(incomingEmails.isRead, false));
+  async getUnreadIncomingEmailCount(userId: string): Promise<number> {
+    const result = await db.select({ count: sql<number>`count(*)` }).from(incomingEmails).where(and(eq(incomingEmails.isRead, false), eq(incomingEmails.userId, userId)));
     return Number(result[0]?.count || 0);
   }
 
-  async deleteIncomingEmail(id: string): Promise<boolean> {
-    const result = await db.delete(incomingEmails).where(eq(incomingEmails.id, id)).returning();
+  async deleteIncomingEmail(id: string, userId: string): Promise<boolean> {
+    const result = await db.delete(incomingEmails).where(and(eq(incomingEmails.id, id), eq(incomingEmails.userId, userId))).returning();
     return result.length > 0;
   }
 }
