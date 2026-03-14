@@ -115,7 +115,7 @@ export default function InboxPage() {
 
   const formatDate = (dateStr: string) => {
     try {
-      return formatET(dateStr);
+      return formatET(dateStr, "MMM d, yyyy h:mm a");
     } catch {
       return dateStr;
     }

@@ -612,7 +612,8 @@ export async function registerRoutes(
 
         const lock = await client.getMailboxLock("INBOX");
         try {
-          const totalMessages = client.mailbox?.exists ?? 0;
+          const mailbox = client.mailbox;
+          const totalMessages = (mailbox && typeof mailbox === 'object' && 'exists' in mailbox) ? (mailbox as any).exists as number : 0;
           const startSeq = Math.max(1, totalMessages - 199);
           const range = `${startSeq}:*`;
 
