@@ -2,6 +2,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import nodemailer from "nodemailer";
+import { ImapFlow } from "imapflow";
 import { insertCoachSchema, insertContactSchema, insertReminderSchema, insertEmailTemplateSchema, insertEmailSettingsSchema, insertScheduledEmailSchema, insertRecruitingProfileSchema } from "@shared/schema";
 import { z } from "zod";
 import { setupAuth, isAuthenticated } from "./replitAuth";
@@ -574,6 +575,262 @@ export async function registerRoutes(
       });
     } catch (error: any) {
       res.status(500).json({ error: error.message || "Failed to send emails" });
+    }
+  });
+
+  // Inbox - Sync via IMAP
+  app.post("/api/sync-inbox", isAuthenticated, async (req, res) => {
+    try {
+      const settings = await storage.getEmailSettings();
+      if (!settings || !settings.configured) {
+        return res.status(400).json({ error: "Email not configured. Please set up your iCloud Mail settings first." });
+      }
+
+      const coaches = await storage.getCoaches();
+      const coachEmailMap = new Map<string, { id: string; name: string }>();
+      for (const coach of coaches) {
+        coachEmailMap.set(coach.email.toLowerCase().trim(), { id: coach.id, name: coach.name });
+      }
+
+      const client = new ImapFlow({
+        host: "imap.mail.me.com",
+        port: 993,
+        secure: true,
+        auth: {
+          user: settings.email,
+          pass: settings.appPassword,
+        },
+        logger: false,
+      });
+
+      let newCount = 0;
+      let totalFetched = 0;
+
+      try {
+        await client.connect();
+
+        const lock = await client.getMailboxLock("INBOX");
+        try {
+          const mailbox = client.mailbox;
+          const totalMessages = mailbox?.exists || 0;
+          const startSeq = Math.max(1, totalMessages - 199);
+          const range = `${startSeq}:*`;
+
+          const messages = client.fetch(range, {
+            envelope: true,
+            source: true,
+            uid: true,
+          });
+
+          for await (const msg of messages) {
+            totalFetched++;
+            const envelope = msg.envelope;
+            if (!envelope) continue;
+
+            const messageId = envelope.messageId || `uid-${msg.uid}`;
+
+            const existing = await storage.getIncomingEmailByMessageId(messageId);
+            if (existing) continue;
+
+            const fromAddr = envelope.from?.[0];
+            if (!fromAddr) continue;
+
+            const fromEmail = fromAddr.address || "";
+            const fromName = fromAddr.name || fromEmail;
+            const subject = envelope.subject || "(No subject)";
+
+            const coachMatch = coachEmailMap.get(fromEmail.toLowerCase().trim());
+            if (!coachMatch) continue;
+
+            let bodyText = "";
+            let bodyHtml = "";
+
+            if (msg.source) {
+              const rawSource = msg.source.toString();
+              const { simpleParser } = await import("mailparser");
+              try {
+                const parsed = await simpleParser(rawSource);
+                bodyText = parsed.text || "";
+                bodyHtml = parsed.html || "";
+              } catch {
+                bodyText = rawSource.substring(0, 5000);
+              }
+            }
+
+            const receivedAt = envelope.date
+              ? new Date(envelope.date).toISOString()
+              : new Date().toISOString();
+
+            await storage.createIncomingEmail({
+              messageId,
+              coachId: coachMatch.id,
+              fromEmail,
+              fromName,
+              subject,
+              bodyText,
+              bodyHtml,
+              receivedAt,
+              isRead: false,
+            });
+            newCount++;
+          }
+        } finally {
+          lock.release();
+        }
+
+        await client.logout();
+      } catch (imapError: any) {
+        console.error("[sync-inbox] IMAP error:", imapError.code, imapError.message);
+        let userMsg = imapError.message || "Failed to connect to iCloud Mail";
+        if (imapError.code === "EAUTH" || imapError.authenticationFailed) {
+          userMsg = "Authentication failed. Check your iCloud email and app-specific password.";
+        } else if (imapError.code === "ECONNREFUSED" || imapError.code === "ETIMEDOUT") {
+          userMsg = "Could not connect to iCloud IMAP server. Please try again later.";
+        }
+        return res.status(400).json({ error: userMsg });
+      }
+
+      res.json({ message: `Synced ${newCount} new email(s)`, newCount, totalFetched });
+    } catch (error: any) {
+      console.error("[sync-inbox] Error:", error.message);
+      res.status(500).json({ error: error.message || "Failed to sync inbox" });
+    }
+  });
+
+  // Inbox - List messages
+  app.get("/api/inbox", isAuthenticated, async (req, res) => {
+    try {
+      const emails = await storage.getIncomingEmails();
+      const coaches = await storage.getCoaches();
+      const coachMap = new Map(coaches.map(c => [c.id, c]));
+
+      const enriched = emails.map(email => {
+        const coach = email.coachId ? coachMap.get(email.coachId) : null;
+        return {
+          ...email,
+          coachName: coach?.name || email.fromName || email.fromEmail,
+          school: coach?.school || "",
+        };
+      });
+
+      res.json(enriched);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch inbox" });
+    }
+  });
+
+  // Inbox - Unread count
+  app.get("/api/inbox/unread-count", isAuthenticated, async (req, res) => {
+    try {
+      const count = await storage.getUnreadIncomingEmailCount();
+      res.json({ count });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch unread count" });
+    }
+  });
+
+  // Inbox - Mark as read
+  app.patch("/api/inbox/:id/read", isAuthenticated, async (req, res) => {
+    try {
+      const email = await storage.markIncomingEmailRead(req.params.id);
+      if (!email) {
+        return res.status(404).json({ error: "Email not found" });
+      }
+      res.json(email);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to mark email as read" });
+    }
+  });
+
+  // Inbox - Reply
+  app.post("/api/inbox/:id/reply", isAuthenticated, async (req: any, res) => {
+    try {
+      const { body: replyBody } = req.body;
+      if (!replyBody || !replyBody.trim()) {
+        return res.status(400).json({ error: "Reply body is required" });
+      }
+
+      const incomingEmail = await storage.getIncomingEmail(req.params.id);
+      if (!incomingEmail) {
+        return res.status(404).json({ error: "Email not found" });
+      }
+
+      const settings = await storage.getEmailSettings();
+      if (!settings || !settings.configured) {
+        return res.status(400).json({ error: "Email not configured" });
+      }
+
+      const transporter = nodemailer.createTransport({
+        host: "smtp.mail.me.com",
+        port: 587,
+        secure: false,
+        requireTLS: true,
+        auth: {
+          user: settings.email,
+          pass: settings.appPassword,
+        },
+        tls: {
+          minVersion: "TLSv1.2",
+          ciphers: "HIGH",
+        },
+      });
+
+      const replySubject = incomingEmail.subject?.startsWith("Re:") 
+        ? incomingEmail.subject 
+        : `Re: ${incomingEmail.subject || ""}`;
+
+      await transporter.sendMail({
+        from: settings.email,
+        to: incomingEmail.fromEmail,
+        subject: replySubject,
+        text: replyBody,
+        html: textToHtml(replyBody),
+        inReplyTo: incomingEmail.messageId || undefined,
+        references: incomingEmail.messageId || undefined,
+      });
+
+      if (incomingEmail.coachId) {
+        const userId = (req.user as any)?.uid || (req.user as any)?.claims?.sub;
+        try {
+          await storage.createContact({
+            coachId: incomingEmail.coachId,
+            userId: userId,
+            date: new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" }),
+            method: "email",
+            subject: replySubject,
+            notes: "Reply sent via RecruitTrack Inbox",
+          });
+        } catch (logError: any) {
+          console.error("[inbox-reply] Failed to log contact:", logError.message);
+        }
+
+        try {
+          const coach = await storage.getCoach(incomingEmail.coachId);
+          if (coach && coach.status === "not_contacted") {
+            await storage.updateCoach(incomingEmail.coachId, { status: "contacted" });
+          }
+        } catch (statusError: any) {
+          console.error("[inbox-reply] Failed to update coach status:", statusError.message);
+        }
+      }
+
+      res.json({ success: true, message: "Reply sent successfully" });
+    } catch (error: any) {
+      console.error("[inbox-reply] Failed:", error.message);
+      res.status(500).json({ error: error.message || "Failed to send reply" });
+    }
+  });
+
+  // Inbox - Delete
+  app.delete("/api/inbox/:id", isAuthenticated, async (req, res) => {
+    try {
+      const deleted = await storage.deleteIncomingEmail(req.params.id);
+      if (!deleted) {
+        return res.status(404).json({ error: "Email not found" });
+      }
+      res.status(204).send();
+    } catch (error) {
+      res.status(500).json({ error: "Failed to delete email" });
     }
   });
 

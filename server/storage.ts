@@ -15,6 +15,8 @@ import {
   type UpsertUser,
   type RecruitingProfile,
   type InsertRecruitingProfile,
+  type IncomingEmail,
+  type InsertIncomingEmail,
   users,
   coaches,
   contacts,
@@ -23,10 +25,11 @@ import {
   emailSettings,
   scheduledEmails,
   recruitingProfiles,
+  incomingEmails,
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { db } from "./db";
-import { eq, and, lte } from "drizzle-orm";
+import { eq, and, lte, desc, sql } from "drizzle-orm";
 
 export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
@@ -68,6 +71,14 @@ export interface IStorage {
   createRecruitingProfile(profile: InsertRecruitingProfile): Promise<RecruitingProfile>;
   updateRecruitingProfile(id: string, profile: Partial<InsertRecruitingProfile>): Promise<RecruitingProfile | undefined>;
   deleteRecruitingProfile(id: string): Promise<boolean>;
+
+  getIncomingEmails(): Promise<IncomingEmail[]>;
+  getIncomingEmail(id: string): Promise<IncomingEmail | undefined>;
+  getIncomingEmailByMessageId(messageId: string): Promise<IncomingEmail | undefined>;
+  createIncomingEmail(email: InsertIncomingEmail): Promise<IncomingEmail>;
+  markIncomingEmailRead(id: string): Promise<IncomingEmail | undefined>;
+  getUnreadIncomingEmailCount(): Promise<number>;
+  deleteIncomingEmail(id: string): Promise<boolean>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -290,6 +301,48 @@ export class DatabaseStorage implements IStorage {
 
   async deleteRecruitingProfile(id: string): Promise<boolean> {
     const result = await db.delete(recruitingProfiles).where(eq(recruitingProfiles.id, id)).returning();
+    return result.length > 0;
+  }
+
+  async getIncomingEmails(): Promise<IncomingEmail[]> {
+    return db.select().from(incomingEmails).orderBy(desc(incomingEmails.receivedAt));
+  }
+
+  async getIncomingEmail(id: string): Promise<IncomingEmail | undefined> {
+    const [email] = await db.select().from(incomingEmails).where(eq(incomingEmails.id, id));
+    return email;
+  }
+
+  async getIncomingEmailByMessageId(messageId: string): Promise<IncomingEmail | undefined> {
+    const [email] = await db.select().from(incomingEmails).where(eq(incomingEmails.messageId, messageId));
+    return email;
+  }
+
+  async createIncomingEmail(email: InsertIncomingEmail): Promise<IncomingEmail> {
+    const id = randomUUID();
+    const [newEmail] = await db
+      .insert(incomingEmails)
+      .values({ ...email, id, isRead: email.isRead ?? false })
+      .returning();
+    return newEmail;
+  }
+
+  async markIncomingEmailRead(id: string): Promise<IncomingEmail | undefined> {
+    const [updated] = await db
+      .update(incomingEmails)
+      .set({ isRead: true })
+      .where(eq(incomingEmails.id, id))
+      .returning();
+    return updated;
+  }
+
+  async getUnreadIncomingEmailCount(): Promise<number> {
+    const result = await db.select({ count: sql<number>`count(*)` }).from(incomingEmails).where(eq(incomingEmails.isRead, false));
+    return Number(result[0]?.count || 0);
+  }
+
+  async deleteIncomingEmail(id: string): Promise<boolean> {
+    const result = await db.delete(incomingEmails).where(eq(incomingEmails.id, id)).returning();
     return result.length > 0;
   }
 }

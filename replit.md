@@ -2,7 +2,7 @@
 
 ## Overview
 
-RecruitTrack is a productivity web application designed for student-athletes to manage their college recruiting process. The application helps users track college coach contacts, send personalized emails using templates with merge fields, set follow-up reminders, and log all communication history. It follows a Linear-inspired clean, modern aesthetic focused on efficient data management and streamlined workflows.
+RecruitTrack is a productivity web application designed for student-athletes to manage their college recruiting process. The application helps users track college coach contacts, send personalized emails using templates with merge fields, set follow-up reminders, log all communication history, and receive/reply to coach emails via an in-app inbox. It follows a Linear-inspired clean, modern aesthetic focused on efficient data management and streamlined workflows.
 
 ## User Preferences
 
@@ -38,6 +38,7 @@ Preferred communication style: Simple, everyday language.
 - **Email Templates**: Reusable email templates with merge field support ({{coach_name}}, {{school}}, etc.)
 - **Email Settings**: iCloud Mail SMTP configuration (smtp.mail.me.com:587) for email sending
 - **Recruiting Profiles**: User's profile links (NCSA, Hudl, MaxPreps, etc.) for quick insertion into emails
+- **Incoming Emails**: Emails received from coaches via IMAP sync (imap.mail.me.com:993), matched to coach records by email address, with read/unread tracking and reply capability
 
 ### Project Structure
 ```
@@ -64,6 +65,9 @@ shared/           # Shared types and schemas
 ### Email Service
 - **iCloud Mail SMTP**: Configured through app-specific passwords (smtp.mail.me.com:587)
 - **Nodemailer**: Node.js email client for sending through SMTP
+- **ImapFlow**: IMAP client for receiving emails from iCloud (imap.mail.me.com:993)
+- **mailparser**: Email parsing library for extracting text/HTML body from raw email source
+- **DOMPurify**: HTML sanitization for safely rendering email HTML content
 - **File Attachments**: Base64-encoded files (PDF, Word, images, videos up to 10MB) sent with emails
 
 ### UI Dependencies

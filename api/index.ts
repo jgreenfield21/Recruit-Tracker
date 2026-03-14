@@ -157,6 +157,21 @@ const insertRecruitingProfileSchema = createInsertSchema(recruitingProfiles).omi
 type InsertRecruitingProfile = z.infer<typeof insertRecruitingProfileSchema>;
 type RecruitingProfile = typeof recruitingProfiles.$inferSelect;
 
+const incomingEmails = pgTable("incoming_emails", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  messageId: text("message_id"),
+  coachId: varchar("coach_id", { length: 36 }),
+  fromEmail: text("from_email").notNull(),
+  fromName: text("from_name"),
+  subject: text("subject"),
+  bodyText: text("body_text"),
+  bodyHtml: text("body_html"),
+  receivedAt: text("received_at").notNull(),
+  isRead: boolean("is_read").notNull().default(false),
+});
+
+type IncomingEmail = typeof incomingEmails.$inferSelect;
+
 const isProduction = process.env.NODE_ENV === "production" || process.env.VERCEL === "1";
 const pool = new pg.Pool({
   connectionString: process.env.DATABASE_URL,
@@ -246,6 +261,19 @@ async function initializeDatabase() {
         icon TEXT
       );
       
+      CREATE TABLE IF NOT EXISTS incoming_emails (
+        id VARCHAR(36) PRIMARY KEY,
+        message_id TEXT,
+        coach_id VARCHAR(36),
+        from_email TEXT NOT NULL,
+        from_name TEXT,
+        subject TEXT,
+        body_text TEXT,
+        body_html TEXT,
+        received_at TEXT NOT NULL,
+        is_read BOOLEAN NOT NULL DEFAULT FALSE
+      );
+
       CREATE TABLE IF NOT EXISTS sessions (
         sid VARCHAR PRIMARY KEY,
         sess JSONB NOT NULL,
@@ -432,6 +460,41 @@ class DatabaseStorage {
 
   async deleteRecruitingProfile(id: string): Promise<boolean> {
     await db.delete(recruitingProfiles).where(eq(recruitingProfiles.id, id));
+    return true;
+  }
+
+  async getIncomingEmails(): Promise<IncomingEmail[]> {
+    return await db.select().from(incomingEmails).orderBy(sql`received_at DESC`);
+  }
+
+  async getIncomingEmail(id: string): Promise<IncomingEmail | undefined> {
+    const [email] = await db.select().from(incomingEmails).where(eq(incomingEmails.id, id));
+    return email;
+  }
+
+  async getIncomingEmailByMessageId(messageId: string): Promise<IncomingEmail | undefined> {
+    const [email] = await db.select().from(incomingEmails).where(eq(incomingEmails.messageId, messageId));
+    return email;
+  }
+
+  async createIncomingEmail(data: { messageId: string; coachId: string; fromEmail: string; fromName: string; subject: string; bodyText: string; bodyHtml: string; receivedAt: string; isRead: boolean }): Promise<IncomingEmail> {
+    const id = randomUUID();
+    const [newEmail] = await db.insert(incomingEmails).values({ ...data, id }).returning();
+    return newEmail;
+  }
+
+  async markIncomingEmailRead(id: string): Promise<IncomingEmail | undefined> {
+    const [updated] = await db.update(incomingEmails).set({ isRead: true }).where(eq(incomingEmails.id, id)).returning();
+    return updated;
+  }
+
+  async getUnreadIncomingEmailCount(): Promise<number> {
+    const result = await db.select({ count: sql<number>`count(*)` }).from(incomingEmails).where(eq(incomingEmails.isRead, false));
+    return Number(result[0]?.count || 0);
+  }
+
+  async deleteIncomingEmail(id: string): Promise<boolean> {
+    await db.delete(incomingEmails).where(eq(incomingEmails.id, id));
     return true;
   }
 }
@@ -998,6 +1061,159 @@ app.delete("/api/recruiting-profiles/:id", isAuthenticated, async (req, res) => 
     res.status(204).send();
   } catch (error) {
     res.status(500).json({ error: "Failed to delete profile" });
+  }
+});
+
+// Inbox - Sync via IMAP
+app.post("/api/sync-inbox", isAuthenticated, async (req: any, res) => {
+  try {
+    const settings = await storage.getEmailSettings();
+    if (!settings || !settings.configured) {
+      return res.status(400).json({ error: "Email not configured. Please set up your iCloud Mail settings first." });
+    }
+
+    const allCoaches = await storage.getCoaches();
+    const coachEmailMap = new Map<string, { id: string; name: string }>();
+    for (const coach of allCoaches) {
+      coachEmailMap.set(coach.email.toLowerCase().trim(), { id: coach.id, name: coach.name });
+    }
+
+    const { ImapFlow } = await import("imapflow");
+    const client = new ImapFlow({
+      host: "imap.mail.me.com",
+      port: 993,
+      secure: true,
+      auth: { user: settings.email, pass: settings.appPassword },
+      logger: false,
+    });
+
+    let newCount = 0;
+    try {
+      await client.connect();
+      const lock = await client.getMailboxLock("INBOX");
+      try {
+        const mailbox = client.mailbox;
+        const totalMessages = (mailbox as any)?.exists || 0;
+        const startSeq = Math.max(1, totalMessages - 199);
+        const messages = client.fetch(`${startSeq}:*`, { envelope: true, source: true, uid: true });
+        for await (const msg of messages) {
+          const envelope = msg.envelope;
+          if (!envelope) continue;
+          const messageId = envelope.messageId || `uid-${msg.uid}`;
+          const existing = await storage.getIncomingEmailByMessageId(messageId);
+          if (existing) continue;
+          const fromAddr = envelope.from?.[0];
+          if (!fromAddr) continue;
+          const fromEmail = fromAddr.address || "";
+          const coachMatch = coachEmailMap.get(fromEmail.toLowerCase().trim());
+          if (!coachMatch) continue;
+
+          let bodyText = "";
+          let bodyHtml = "";
+          if (msg.source) {
+            const { simpleParser } = await import("mailparser");
+            try {
+              const parsed = await simpleParser(msg.source.toString());
+              bodyText = parsed.text || "";
+              bodyHtml = parsed.html || "";
+            } catch { bodyText = msg.source.toString().substring(0, 5000); }
+          }
+          await storage.createIncomingEmail({
+            messageId,
+            coachId: coachMatch.id,
+            fromEmail,
+            fromName: fromAddr.name || fromEmail,
+            subject: envelope.subject || "(No subject)",
+            bodyText,
+            bodyHtml,
+            receivedAt: envelope.date ? new Date(envelope.date).toISOString() : new Date().toISOString(),
+            isRead: false,
+          });
+          newCount++;
+        }
+      } finally { lock.release(); }
+      await client.logout();
+    } catch (imapError: any) {
+      console.error("[sync-inbox] IMAP error:", imapError.message);
+      return res.status(400).json({ error: imapError.message || "Failed to connect to iCloud Mail" });
+    }
+    res.json({ message: `Synced ${newCount} new email(s)`, newCount });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || "Failed to sync inbox" });
+  }
+});
+
+app.get("/api/inbox", isAuthenticated, async (req, res) => {
+  try {
+    const emails = await storage.getIncomingEmails();
+    const allCoaches = await storage.getCoaches();
+    const coachMap = new Map(allCoaches.map(c => [c.id, c]));
+    const enriched = emails.map(email => {
+      const coach = email.coachId ? coachMap.get(email.coachId) : null;
+      return { ...email, coachName: coach?.name || email.fromName || email.fromEmail, school: coach?.school || "" };
+    });
+    res.json(enriched);
+  } catch (error) {
+    res.status(500).json({ error: "Failed to fetch inbox" });
+  }
+});
+
+app.get("/api/inbox/unread-count", isAuthenticated, async (req, res) => {
+  try {
+    const count = await storage.getUnreadIncomingEmailCount();
+    res.json({ count });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to fetch unread count" });
+  }
+});
+
+app.patch("/api/inbox/:id/read", isAuthenticated, async (req, res) => {
+  try {
+    const email = await storage.markIncomingEmailRead(req.params.id);
+    if (!email) return res.status(404).json({ error: "Email not found" });
+    res.json(email);
+  } catch (error) {
+    res.status(500).json({ error: "Failed to mark email as read" });
+  }
+});
+
+app.post("/api/inbox/:id/reply", isAuthenticated, async (req: any, res) => {
+  try {
+    const { body: replyBody } = req.body;
+    if (!replyBody || !replyBody.trim()) return res.status(400).json({ error: "Reply body is required" });
+    const incomingEmail = await storage.getIncomingEmail(req.params.id);
+    if (!incomingEmail) return res.status(404).json({ error: "Email not found" });
+    const settings = await storage.getEmailSettings();
+    if (!settings || !settings.configured) return res.status(400).json({ error: "Email not configured" });
+    const transporter = nodemailer.createTransport({
+      host: "smtp.mail.me.com", port: 587, secure: false, requireTLS: true,
+      auth: { user: settings.email, pass: settings.appPassword },
+      tls: { minVersion: "TLSv1.2", ciphers: "HIGH" },
+    });
+    const replySubject = incomingEmail.subject?.startsWith("Re:") ? incomingEmail.subject : `Re: ${incomingEmail.subject || ""}`;
+    await transporter.sendMail({
+      from: settings.email, to: incomingEmail.fromEmail, subject: replySubject,
+      text: replyBody, html: textToHtml(replyBody),
+      inReplyTo: incomingEmail.messageId || undefined, references: incomingEmail.messageId || undefined,
+    });
+    if (incomingEmail.coachId) {
+      const userId = (req.user as any)?.uid || (req.user as any)?.claims?.sub;
+      try { await storage.createContact({ coachId: incomingEmail.coachId, userId, date: new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" }), method: "email", subject: replySubject, notes: "Reply sent via RecruitTrack Inbox" }); } catch {}
+      try { const coach = await storage.getCoach(incomingEmail.coachId); if (coach?.status === "not_contacted") await storage.updateCoach(incomingEmail.coachId, { status: "contacted" }); } catch {}
+    }
+    res.json({ success: true, message: "Reply sent successfully" });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || "Failed to send reply" });
+  }
+});
+
+app.delete("/api/inbox/:id", isAuthenticated, async (req, res) => {
+  try {
+    const deleted = await storage.deleteIncomingEmail(req.params.id);
+    if (!deleted) return res.status(404).json({ error: "Email not found" });
+    res.status(204).send();
+  } catch (error) {
+    res.status(500).json({ error: "Failed to delete email" });
   }
 });
 

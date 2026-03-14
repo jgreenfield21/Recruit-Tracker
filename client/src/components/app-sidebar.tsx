@@ -1,4 +1,5 @@
 import { useLocation, Link } from "wouter";
+import { useQuery } from "@tanstack/react-query";
 import {
   LayoutDashboard,
   Users,
@@ -7,6 +8,7 @@ import {
   Settings,
   Mail,
   BarChart3,
+  Inbox,
 } from "lucide-react";
 import {
   Sidebar,
@@ -20,11 +22,13 @@ import {
   SidebarHeader,
   SidebarFooter,
 } from "@/components/ui/sidebar";
+import { Badge } from "@/components/ui/badge";
 
 const menuItems = [
   { title: "Dashboard", url: "/", icon: LayoutDashboard },
   { title: "Coaches", url: "/coaches", icon: Users },
   { title: "Send Emails", url: "/compose", icon: Mail },
+  { title: "Inbox", url: "/inbox", icon: Inbox },
   { title: "Templates", url: "/templates", icon: FileText },
   { title: "Reminders", url: "/reminders", icon: Bell },
   { title: "Analytics", url: "/analytics", icon: BarChart3 },
@@ -33,6 +37,13 @@ const menuItems = [
 
 export function AppSidebar() {
   const [location] = useLocation();
+
+  const { data: unreadData } = useQuery<{ count: number }>({
+    queryKey: ["/api/inbox/unread-count"],
+    refetchInterval: 60000,
+  });
+
+  const unreadCount = unreadData?.count || 0;
 
   return (
     <Sidebar>
@@ -61,9 +72,18 @@ export function AppSidebar() {
                       asChild
                       isActive={isActive}
                     >
-                      <Link href={item.url} data-testid={`link-nav-${item.title.toLowerCase().replace(" ", "-")}`}>
+                      <Link href={item.url} data-testid={`link-nav-${item.title.toLowerCase().replace(/\s/g, "-")}`}>
                         <item.icon className="h-4 w-4" />
-                        <span>{item.title}</span>
+                        <span className="flex-1">{item.title}</span>
+                        {item.title === "Inbox" && unreadCount > 0 && (
+                          <Badge
+                            variant="default"
+                            className="ml-auto h-5 min-w-[20px] px-1.5 text-xs"
+                            data-testid="badge-sidebar-unread"
+                          >
+                            {unreadCount}
+                          </Badge>
+                        )}
                       </Link>
                     </SidebarMenuButton>
                   </SidebarMenuItem>

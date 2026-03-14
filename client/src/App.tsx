@@ -16,6 +16,7 @@ import Compose from "@/pages/compose";
 import Reminders from "@/pages/reminders";
 import Settings from "@/pages/settings";
 import Analytics from "@/pages/analytics";
+import Inbox from "@/pages/inbox";
 import Landing from "@/pages/landing";
 import NotFound from "@/pages/not-found";
 
@@ -43,6 +44,7 @@ function Router() {
       <Route path="/compose" component={Compose} />
       <Route path="/reminders" component={Reminders} />
       <Route path="/analytics" component={Analytics} />
+      <Route path="/inbox" component={Inbox} />
       <Route path="/settings" component={Settings} />
       <Route component={NotFound} />
     </Switch>

@@ -144,6 +144,23 @@ export const users = pgTable("users", {
 export type UpsertUser = typeof users.$inferInsert;
 export type User = typeof users.$inferSelect;
 
+export const incomingEmails = pgTable("incoming_emails", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  messageId: text("message_id"),
+  coachId: varchar("coach_id", { length: 36 }),
+  fromEmail: text("from_email").notNull(),
+  fromName: text("from_name"),
+  subject: text("subject"),
+  bodyText: text("body_text"),
+  bodyHtml: text("body_html"),
+  receivedAt: text("received_at").notNull(),
+  isRead: boolean("is_read").notNull().default(false),
+});
+
+export const insertIncomingEmailSchema = createInsertSchema(incomingEmails).omit({ id: true });
+export type InsertIncomingEmail = z.infer<typeof insertIncomingEmailSchema>;
+export type IncomingEmail = typeof incomingEmails.$inferSelect;
+
 export const recruitingProfiles = pgTable("recruiting_profiles", {
   id: varchar("id", { length: 36 }).primaryKey(),
   userId: varchar("user_id", { length: 36 }),
