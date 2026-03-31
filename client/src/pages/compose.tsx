@@ -90,10 +90,10 @@ export default function Compose() {
   const [coachSearch, setCoachSearch] = useState("");
   const [divisionFilter, setDivisionFilter] = useState("all");
   const [stateFilter, setStateFilter] = useState("all");
-  const [statusFilter, setStatusFilter] = useState("all");
+  const [activeStatusFilters, setActiveStatusFilters] = useState<Set<string>>(new Set());
   const [favoriteFilter, setFavoriteFilter] = useState(false);
   const [lastContactedFilter, setLastContactedFilter] = useState("none");
-  const [sortMode, setSortMode] = useState<"name" | "school" | "state" | "status">("name");
+  const [sortMode, setSortMode] = useState<"favorites" | "az" | "division" | "lastContacted">("favorites");
   const [sendProgress, setSendProgress] = useState<{ sent: number; total: number; failed: number; startTime: number; aborted: boolean } | null>(null);
   const [isSending, setIsSending] = useState(false);
   const [showLargeSendWarning, setShowLargeSendWarning] = useState(false);
@@ -176,7 +176,7 @@ export default function Compose() {
       if (favoriteFilter && !coach.favorite) return false;
       if (divisionFilter !== "all" && coach.division !== divisionFilter) return false;
       if (stateFilter !== "all" && (coach.state || "") !== stateFilter) return false;
-      if (statusFilter !== "all" && coach.status !== statusFilter) return false;
+      if (activeStatusFilters.size > 0 && !activeStatusFilters.has(coach.status)) return false;
       if (lastContactedFilter !== "none") {
         const days = parseInt(lastContactedFilter, 10);
         const lastDate = lastContactDateMap.get(coach.id);
@@ -199,13 +199,30 @@ export default function Compose() {
       return true;
     });
     return filtered.sort((a, b) => {
-      if (sortMode === "name") return a.name.localeCompare(b.name);
-      if (sortMode === "school") return a.school.localeCompare(b.school);
-      if (sortMode === "state") return (a.state || "").localeCompare(b.state || "");
-      if (sortMode === "status") return a.status.localeCompare(b.status);
+      if (sortMode === "favorites") {
+        if (a.favorite && !b.favorite) return -1;
+        if (!a.favorite && b.favorite) return 1;
+        return a.name.localeCompare(b.name);
+      }
+      if (sortMode === "az") return a.name.localeCompare(b.name);
+      if (sortMode === "division") {
+        const divOrder: Record<string, number> = { D1: 1, D2: 2, D3: 3, NAIA: 4, JUCO: 5 };
+        const aD = divOrder[a.division || ""] ?? 99;
+        const bD = divOrder[b.division || ""] ?? 99;
+        if (aD !== bD) return aD - bD;
+        return a.name.localeCompare(b.name);
+      }
+      if (sortMode === "lastContacted") {
+        const aDate = lastContactDateMap.get(a.id);
+        const bDate = lastContactDateMap.get(b.id);
+        if (!aDate && !bDate) return 0;
+        if (!aDate) return -1;
+        if (!bDate) return 1;
+        return aDate < bDate ? -1 : aDate > bDate ? 1 : 0;
+      }
       return 0;
     });
-  }, [coaches, coachSearch, divisionFilter, stateFilter, statusFilter, favoriteFilter, lastContactedFilter, lastContactDateMap, sortMode]);
+  }, [coaches, coachSearch, divisionFilter, stateFilter, activeStatusFilters, favoriteFilter, lastContactedFilter, lastContactDateMap, sortMode]);
 
   const insertProfileLink = (profile: RecruitingProfile) => {
     const linkText = `[${profile.name}](${profile.url})`;
@@ -728,54 +745,71 @@ export default function Compose() {
                       </Select>
 
                       <Select value={sortMode} onValueChange={(v) => setSortMode(v as typeof sortMode)}>
-                        <SelectTrigger className="w-[120px]" data-testid="select-sort-mode">
+                        <SelectTrigger className="w-[160px]" data-testid="select-sort-mode">
                           <SlidersHorizontal className="h-4 w-4 mr-1 flex-shrink-0" />
                           <SelectValue placeholder="Sort by" />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="name">Sort: Name</SelectItem>
-                          <SelectItem value="school">Sort: School</SelectItem>
-                          <SelectItem value="state">Sort: State</SelectItem>
-                          <SelectItem value="status">Sort: Status</SelectItem>
+                          <SelectItem value="favorites">Favorites First</SelectItem>
+                          <SelectItem value="az">A → Z</SelectItem>
+                          <SelectItem value="division">By Division</SelectItem>
+                          <SelectItem value="lastContacted">Last Contacted (oldest)</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
 
                     <div className="flex flex-wrap gap-1" data-testid="status-filter-chips">
-                      {[{ value: "all", label: "All" }, ...coachStatusOptions].map((opt) => (
+                      {coachStatusOptions.map((opt) => {
+                        const isActive = activeStatusFilters.has(opt.value);
+                        return (
+                          <button
+                            key={opt.value}
+                            onClick={() => {
+                              const next = new Set(activeStatusFilters);
+                              if (isActive) next.delete(opt.value);
+                              else next.add(opt.value);
+                              setActiveStatusFilters(next);
+                            }}
+                            className={`px-2 py-0.5 rounded-full text-xs border transition-colors ${
+                              isActive
+                                ? "bg-primary text-primary-foreground border-primary"
+                                : "bg-background text-muted-foreground border-border hover:border-primary/50"
+                            }`}
+                            data-testid={`chip-status-${opt.value}`}
+                          >
+                            {opt.label}
+                          </button>
+                        );
+                      })}
+                      {activeStatusFilters.size > 0 && (
                         <button
-                          key={opt.value}
-                          onClick={() => setStatusFilter(opt.value)}
-                          className={`px-2 py-0.5 rounded-full text-xs border transition-colors ${
-                            statusFilter === opt.value
-                              ? "bg-primary text-primary-foreground border-primary"
-                              : "bg-background text-muted-foreground border-border hover:border-primary/50"
-                          }`}
-                          data-testid={`chip-status-${opt.value}`}
+                          onClick={() => setActiveStatusFilters(new Set())}
+                          className="px-2 py-0.5 rounded-full text-xs border border-border bg-background text-muted-foreground hover:border-primary/50 transition-colors"
+                          data-testid="chip-status-clear"
                         >
-                          {opt.label}
+                          ×
                         </button>
-                      ))}
+                      )}
                     </div>
                   </div>
 
                   <div className="flex items-center justify-between gap-2 mb-1 text-xs text-muted-foreground px-0.5" data-testid="filter-summary">
                     <span>
-                      {filteredCoaches.length} coach{filteredCoaches.length === 1 ? "" : "es"} shown
-                      {(divisionFilter !== "all" || stateFilter !== "all" || statusFilter !== "all" || favoriteFilter || lastContactedFilter !== "none" || coachSearch.trim()) && (
+                      {filteredCoaches.length} coach{filteredCoaches.length === 1 ? "" : "es"} match
+                      {(divisionFilter !== "all" || stateFilter !== "all" || activeStatusFilters.size > 0 || favoriteFilter || lastContactedFilter !== "none" || coachSearch.trim()) && (
                         <button
                           className="ml-2 text-primary hover:underline"
                           onClick={() => {
                             setDivisionFilter("all");
                             setStateFilter("all");
-                            setStatusFilter("all");
+                            setActiveStatusFilters(new Set());
                             setFavoriteFilter(false);
                             setLastContactedFilter("none");
                             setCoachSearch("");
                           }}
-                          data-testid="button-clear-filters"
+                          data-testid="button-reset-filters"
                         >
-                          Clear filters
+                          Reset filters
                         </button>
                       )}
                     </span>
@@ -792,7 +826,7 @@ export default function Compose() {
                       data-testid="checkbox-select-all"
                     />
                     <Label htmlFor="select-all" className="text-sm font-medium cursor-pointer">
-                      Select All visible ({Math.min(filteredCoaches.length, RECIPIENT_CAP - selectedCoaches.size + filteredCoaches.filter(c => selectedCoaches.has(c.id)).length)})
+                      Select All visible
                     </Label>
                   </div>
                   <ScrollArea className="h-[200px]">
@@ -802,15 +836,19 @@ export default function Compose() {
                           No coaches match your search
                         </div>
                       ) : (
-                        filteredCoaches.map((coach) => (
+                        filteredCoaches.map((coach) => {
+                          const isSelected = selectedCoaches.has(coach.id);
+                          const atCap = selectedCoaches.size >= RECIPIENT_CAP && !isSelected;
+                          return (
                           <div
                             key={coach.id}
-                            className="flex items-center gap-3 p-2 rounded-md hover-elevate"
+                            className={`flex items-center gap-3 p-2 rounded-md ${atCap ? "opacity-50" : "hover-elevate"}`}
                             data-testid={`coach-recipient-${coach.id}`}
                           >
                             <Checkbox
                               id={`coach-${coach.id}`}
-                              checked={selectedCoaches.has(coach.id)}
+                              checked={isSelected}
+                              disabled={atCap}
                               onCheckedChange={() => handleCoachToggleWithCap(coach.id)}
                               data-testid={`checkbox-coach-${coach.id}`}
                             />
@@ -832,7 +870,8 @@ export default function Compose() {
                               </div>
                             </Label>
                           </div>
-                        ))
+                          );
+                        })
                       )}
                     </div>
                   </ScrollArea>

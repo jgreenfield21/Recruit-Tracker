@@ -357,7 +357,7 @@ export function ImportCoachesDialog({ open, onOpenChange }: ImportCoachesDialogP
                   data-testid="textarea-import-raw"
                 />
                 <p className="text-xs text-muted-foreground">
-                  Optionally include a header row (e.g. Name, Email, Phone, Position, School, Division) to specify columns in any order. Without headers, the format Name, Position, Email, Phone is auto-detected.
+                  Optionally include a header row (e.g. Name, Email, Phone, Position, School, Division, State) to specify columns in any order. Without headers, the format Name, Position, Email, Phone is auto-detected.
                 </p>
                 <Button onClick={handleParse} disabled={!rawText.trim()} data-testid="button-parse-text">
                   Preview Coaches
@@ -367,7 +367,7 @@ export function ImportCoachesDialog({ open, onOpenChange }: ImportCoachesDialogP
               <TabsContent value="file" className="space-y-3 mt-3">
                 <Label>Upload a CSV file</Label>
                 <p className="text-xs text-muted-foreground">
-                  The CSV can include headers: name, email, phone, position, school, division. If no headers are detected, the format Name, Position, Email, Phone is assumed.
+                  The CSV can include headers: name, email, phone, position, school, division, state. If no headers are detected, the format Name, Position, Email, Phone is assumed.
                 </p>
                 <input
                   type="file"
