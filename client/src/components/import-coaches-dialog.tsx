@@ -367,7 +367,15 @@ export function ImportCoachesDialog({ open, onOpenChange }: ImportCoachesDialogP
               <TabsContent value="file" className="space-y-3 mt-3">
                 <Label>Upload a CSV file</Label>
                 <p className="text-xs text-muted-foreground">
-                  The CSV can include headers: name, email, phone, position, school, division, state. If no headers are detected, the format Name, Position, Email, Phone is assumed.
+                  The CSV can include headers: name, email, phone, position, school, division, state. If no headers are detected, the format Name, Position, Email, Phone is assumed.{" "}
+                  <a
+                    href="/sample-coaches.csv"
+                    download="sample-coaches.csv"
+                    className="text-primary hover:underline"
+                    data-testid="link-download-sample-csv"
+                  >
+                    Download sample CSV
+                  </a>
                 </p>
                 <input
                   type="file"
