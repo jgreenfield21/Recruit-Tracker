@@ -17,6 +17,8 @@ import {
   Star,
   CheckCircle2,
   XCircle,
+  SlidersHorizontal,
+  Filter,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -45,7 +47,7 @@ import { LoadingState } from "@/components/loading-state";
 import { apiRequest, queryClient, getAuthHeaders } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { Coach, Contact, EmailTemplate, EmailSettings, ScheduledEmail, RecruitingProfile } from "@shared/schema";
-import { divisionOptions } from "@shared/schema";
+import { divisionOptions, coachStatusOptions } from "@shared/schema";
 import {
   Popover,
   PopoverContent,
@@ -87,8 +89,11 @@ export default function Compose() {
   const [attachments, setAttachments] = useState<AttachmentFile[]>([]);
   const [coachSearch, setCoachSearch] = useState("");
   const [divisionFilter, setDivisionFilter] = useState("all");
+  const [stateFilter, setStateFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("all");
   const [favoriteFilter, setFavoriteFilter] = useState(false);
   const [lastContactedFilter, setLastContactedFilter] = useState("none");
+  const [sortMode, setSortMode] = useState<"name" | "school" | "state" | "status">("name");
   const [sendProgress, setSendProgress] = useState<{ sent: number; total: number; failed: number; startTime: number; aborted: boolean } | null>(null);
   const [isSending, setIsSending] = useState(false);
   const [showLargeSendWarning, setShowLargeSendWarning] = useState(false);
@@ -170,6 +175,8 @@ export default function Compose() {
     const filtered = coaches.filter((coach) => {
       if (favoriteFilter && !coach.favorite) return false;
       if (divisionFilter !== "all" && coach.division !== divisionFilter) return false;
+      if (stateFilter !== "all" && (coach.state || "") !== stateFilter) return false;
+      if (statusFilter !== "all" && coach.status !== statusFilter) return false;
       if (lastContactedFilter !== "none") {
         const days = parseInt(lastContactedFilter, 10);
         const lastDate = lastContactDateMap.get(coach.id);
@@ -185,17 +192,20 @@ export default function Compose() {
           coach.name.toLowerCase().includes(q) ||
           coach.school.toLowerCase().includes(q) ||
           coach.email.toLowerCase().includes(q) ||
-          (coach.position && coach.position.toLowerCase().includes(q))
+          (coach.position && coach.position.toLowerCase().includes(q)) ||
+          (coach.state && coach.state.toLowerCase().includes(q))
         );
       }
       return true;
     });
     return filtered.sort((a, b) => {
-      if (a.favorite && !b.favorite) return -1;
-      if (!a.favorite && b.favorite) return 1;
+      if (sortMode === "name") return a.name.localeCompare(b.name);
+      if (sortMode === "school") return a.school.localeCompare(b.school);
+      if (sortMode === "state") return (a.state || "").localeCompare(b.state || "");
+      if (sortMode === "status") return a.status.localeCompare(b.status);
       return 0;
     });
-  }, [coaches, coachSearch, divisionFilter, favoriteFilter, lastContactedFilter, lastContactDateMap]);
+  }, [coaches, coachSearch, divisionFilter, stateFilter, statusFilter, favoriteFilter, lastContactedFilter, lastContactDateMap, sortMode]);
 
   const insertProfileLink = (profile: RecruitingProfile) => {
     const linkText = `[${profile.name}](${profile.url})`;
@@ -296,15 +306,16 @@ export default function Compose() {
     }
   };
 
-  const handleCoachToggle = (coachId: string) => {
-    const newSelected = new Set(selectedCoaches);
-    if (newSelected.has(coachId)) {
-      newSelected.delete(coachId);
-    } else {
-      newSelected.add(coachId);
+  const uniqueStates = useMemo(() => {
+    if (!coaches) return [];
+    const stateSet = new Set<string>();
+    for (const coach of coaches) {
+      if (coach.state && coach.state.trim()) stateSet.add(coach.state.trim());
     }
-    setSelectedCoaches(newSelected);
-  };
+    return Array.from(stateSet).sort();
+  }, [coaches]);
+
+  const RECIPIENT_CAP = 100;
 
   const handleSelectAll = () => {
     const filteredIds = filteredCoaches.map((c) => c.id);
@@ -315,7 +326,28 @@ export default function Compose() {
       setSelectedCoaches(newSelected);
     } else {
       const newSelected = new Set(selectedCoaches);
-      filteredIds.forEach((id) => newSelected.add(id));
+      for (const id of filteredIds) {
+        if (newSelected.size >= RECIPIENT_CAP) break;
+        newSelected.add(id);
+      }
+      setSelectedCoaches(newSelected);
+      if (filteredIds.length > RECIPIENT_CAP) {
+        toast({ title: `Selection capped at ${RECIPIENT_CAP} recipients (iCloud limit)`, variant: "destructive" });
+      }
+    }
+  };
+
+  const handleCoachToggleWithCap = (coachId: string) => {
+    const newSelected = new Set(selectedCoaches);
+    if (newSelected.has(coachId)) {
+      newSelected.delete(coachId);
+      setSelectedCoaches(newSelected);
+    } else {
+      if (newSelected.size >= RECIPIENT_CAP) {
+        toast({ title: `Maximum ${RECIPIENT_CAP} recipients allowed (iCloud limit)`, variant: "destructive" });
+        return;
+      }
+      newSelected.add(coachId);
       setSelectedCoaches(newSelected);
     }
   };
@@ -633,7 +665,7 @@ export default function Compose() {
                       <div className="relative flex-1">
                         <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                         <Input
-                          placeholder="Search by name, school, email..."
+                          placeholder="Search by name, school, state, email..."
                           value={coachSearch}
                           onChange={(e) => setCoachSearch(e.target.value)}
                           className="pl-9"
@@ -646,13 +678,15 @@ export default function Compose() {
                         onClick={() => setFavoriteFilter(!favoriteFilter)}
                         className="toggle-elevate"
                         data-testid="button-favorite-filter"
+                        title="Favorites only"
                       >
                         <Star className={`h-4 w-4 ${favoriteFilter ? "fill-current" : ""}`} />
                       </Button>
                     </div>
+
                     <div className="flex items-center gap-2 flex-wrap">
                       <Select value={divisionFilter} onValueChange={setDivisionFilter}>
-                        <SelectTrigger className="w-[140px]" data-testid="select-division-filter">
+                        <SelectTrigger className="w-[130px]" data-testid="select-division-filter">
                           <SelectValue placeholder="Division" />
                         </SelectTrigger>
                         <SelectContent>
@@ -662,56 +696,104 @@ export default function Compose() {
                           ))}
                         </SelectContent>
                       </Select>
+
+                      {uniqueStates.length > 0 && (
+                        <Select value={stateFilter} onValueChange={setStateFilter}>
+                          <SelectTrigger className="w-[110px]" data-testid="select-state-filter">
+                            <SelectValue placeholder="State" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="all">All States</SelectItem>
+                            {uniqueStates.map((s) => (
+                              <SelectItem key={s} value={s}>{s}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      )}
+
                       <Select value={lastContactedFilter} onValueChange={setLastContactedFilter}>
-                        <SelectTrigger className="w-[200px]" data-testid="select-last-contacted-filter">
-                          <Clock className="h-4 w-4 mr-2 flex-shrink-0" />
+                        <SelectTrigger className="w-[170px]" data-testid="select-last-contacted-filter">
+                          <Clock className="h-4 w-4 mr-1 flex-shrink-0" />
                           <SelectValue placeholder="Last contacted" />
                         </SelectTrigger>
                         <SelectContent>
                           <SelectItem value="none">No time filter</SelectItem>
-                          <SelectItem value="1">Not contacted in 1 day</SelectItem>
-                          <SelectItem value="2">Not contacted in 2 days</SelectItem>
-                          <SelectItem value="3">Not contacted in 3 days</SelectItem>
-                          <SelectItem value="5">Not contacted in 5 days</SelectItem>
-                          <SelectItem value="7">Not contacted in 7 days</SelectItem>
-                          <SelectItem value="14">Not contacted in 14 days</SelectItem>
+                          <SelectItem value="1">Not in 1 day</SelectItem>
+                          <SelectItem value="2">Not in 2 days</SelectItem>
+                          <SelectItem value="3">Not in 3 days</SelectItem>
+                          <SelectItem value="5">Not in 5 days</SelectItem>
+                          <SelectItem value="7">Not in 7 days</SelectItem>
+                          <SelectItem value="14">Not in 14 days</SelectItem>
+                        </SelectContent>
+                      </Select>
+
+                      <Select value={sortMode} onValueChange={(v) => setSortMode(v as typeof sortMode)}>
+                        <SelectTrigger className="w-[120px]" data-testid="select-sort-mode">
+                          <SlidersHorizontal className="h-4 w-4 mr-1 flex-shrink-0" />
+                          <SelectValue placeholder="Sort by" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="name">Sort: Name</SelectItem>
+                          <SelectItem value="school">Sort: School</SelectItem>
+                          <SelectItem value="state">Sort: State</SelectItem>
+                          <SelectItem value="status">Sort: Status</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
-                  </div>
-                  <div className="flex items-center justify-between gap-2 mb-2">
-                    <div className="flex items-center gap-2">
-                      <Checkbox
-                        id="select-all"
-                        checked={filteredCoaches.length > 0 && filteredCoaches.every((c) => selectedCoaches.has(c.id))}
-                        onCheckedChange={handleSelectAll}
-                        data-testid="checkbox-select-all"
-                      />
-                      <Label htmlFor="select-all" className="text-sm font-medium">
-                        Select All ({filteredCoaches.length})
-                      </Label>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {selectedCoaches.size > 100 && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="h-6 text-xs px-2"
-                          onClick={() => {
-                            const limited = new Set(Array.from(selectedCoaches).slice(0, 100));
-                            setSelectedCoaches(limited);
-                          }}
-                          data-testid="button-limit-100"
+
+                    <div className="flex flex-wrap gap-1" data-testid="status-filter-chips">
+                      {[{ value: "all", label: "All" }, ...coachStatusOptions].map((opt) => (
+                        <button
+                          key={opt.value}
+                          onClick={() => setStatusFilter(opt.value)}
+                          className={`px-2 py-0.5 rounded-full text-xs border transition-colors ${
+                            statusFilter === opt.value
+                              ? "bg-primary text-primary-foreground border-primary"
+                              : "bg-background text-muted-foreground border-border hover:border-primary/50"
+                          }`}
+                          data-testid={`chip-status-${opt.value}`}
                         >
-                          Limit to 100
-                        </Button>
-                      )}
-                      {selectedCoaches.size > 0 && (
-                        <span className="text-xs text-muted-foreground" data-testid="text-selected-count">
-                          {selectedCoaches.size} selected
-                        </span>
-                      )}
+                          {opt.label}
+                        </button>
+                      ))}
                     </div>
+                  </div>
+
+                  <div className="flex items-center justify-between gap-2 mb-1 text-xs text-muted-foreground px-0.5" data-testid="filter-summary">
+                    <span>
+                      {filteredCoaches.length} coach{filteredCoaches.length === 1 ? "" : "es"} shown
+                      {(divisionFilter !== "all" || stateFilter !== "all" || statusFilter !== "all" || favoriteFilter || lastContactedFilter !== "none" || coachSearch.trim()) && (
+                        <button
+                          className="ml-2 text-primary hover:underline"
+                          onClick={() => {
+                            setDivisionFilter("all");
+                            setStateFilter("all");
+                            setStatusFilter("all");
+                            setFavoriteFilter(false);
+                            setLastContactedFilter("none");
+                            setCoachSearch("");
+                          }}
+                          data-testid="button-clear-filters"
+                        >
+                          Clear filters
+                        </button>
+                      )}
+                    </span>
+                    <span data-testid="text-selected-count">
+                      {selectedCoaches.size}/{RECIPIENT_CAP} selected
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-2 mb-2">
+                    <Checkbox
+                      id="select-all"
+                      checked={filteredCoaches.length > 0 && filteredCoaches.every((c) => selectedCoaches.has(c.id))}
+                      onCheckedChange={handleSelectAll}
+                      data-testid="checkbox-select-all"
+                    />
+                    <Label htmlFor="select-all" className="text-sm font-medium cursor-pointer">
+                      Select All visible ({Math.min(filteredCoaches.length, RECIPIENT_CAP - selectedCoaches.size + filteredCoaches.filter(c => selectedCoaches.has(c.id)).length)})
+                    </Label>
                   </div>
                   <ScrollArea className="h-[200px]">
                     <div className="space-y-1">
@@ -729,7 +811,7 @@ export default function Compose() {
                             <Checkbox
                               id={`coach-${coach.id}`}
                               checked={selectedCoaches.has(coach.id)}
-                              onCheckedChange={() => handleCoachToggle(coach.id)}
+                              onCheckedChange={() => handleCoachToggleWithCap(coach.id)}
                               data-testid={`checkbox-coach-${coach.id}`}
                             />
                             <Label
@@ -739,12 +821,14 @@ export default function Compose() {
                               <div className="font-medium text-sm flex items-center gap-1">
                                 {coach.favorite && <Star className="h-3 w-3 fill-yellow-400 text-yellow-400 flex-shrink-0" />}
                                 {coach.name}
+                                {coach.state && (
+                                  <span className="text-xs text-muted-foreground font-normal ml-1">· {coach.state}</span>
+                                )}
                               </div>
                               <div className="text-xs text-muted-foreground">
-                                {coach.school} - {coach.email}
-                                {coach.division && (
-                                  <span className="ml-1">({coach.division})</span>
-                                )}
+                                {coach.school}
+                                {coach.division && <span className="ml-1">· {coach.division}</span>}
+                                {" · "}{coach.email}
                               </div>
                             </Label>
                           </div>

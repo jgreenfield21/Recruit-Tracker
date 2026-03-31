@@ -96,6 +96,7 @@ export async function registerRoutes(
             phone: row.phone?.trim() || undefined,
             position: row.position?.trim() || undefined,
             division: row.division?.trim() || undefined,
+            state: row.state?.trim() || undefined,
             status: "not_contacted",
           });
           await storage.createCoach(data);

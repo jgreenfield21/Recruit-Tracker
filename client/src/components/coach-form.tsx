@@ -33,6 +33,7 @@ const formSchema = z.object({
   school: z.string().min(1, "School is required"),
   position: z.string().optional(),
   division: z.string().optional(),
+  state: z.string().optional(),
   salutation: z.string().optional(),
   notes: z.string().optional(),
   status: z.string().default("not_contacted"),
@@ -58,6 +59,7 @@ export function CoachForm({ coach, onSuccess }: CoachFormProps) {
       school: coach?.school || "",
       position: coach?.position || "",
       division: coach?.division || "",
+      state: coach?.state || "",
       salutation: coach?.salutation || "",
       notes: coach?.notes || "",
       status: coach?.status || "not_contacted",
@@ -237,32 +239,51 @@ export function CoachForm({ coach, onSuccess }: CoachFormProps) {
 
           <FormField
             control={form.control}
-            name="status"
+            name="state"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Status</FormLabel>
-                <Select
-                  onValueChange={field.onChange}
-                  defaultValue={field.value}
-                >
-                  <FormControl>
-                    <SelectTrigger data-testid="select-coach-status">
-                      <SelectValue placeholder="Select status" />
-                    </SelectTrigger>
-                  </FormControl>
-                  <SelectContent>
-                    {coachStatusOptions.map((option) => (
-                      <SelectItem key={option.value} value={option.value}>
-                        {option.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <FormLabel>State</FormLabel>
+                <FormControl>
+                  <Input
+                    placeholder="e.g. CA, NY, TX"
+                    {...field}
+                    data-testid="input-coach-state"
+                  />
+                </FormControl>
                 <FormMessage />
               </FormItem>
             )}
           />
+
         </div>
+
+        <FormField
+          control={form.control}
+          name="status"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Status</FormLabel>
+              <Select
+                onValueChange={field.onChange}
+                defaultValue={field.value}
+              >
+                <FormControl>
+                  <SelectTrigger data-testid="select-coach-status">
+                    <SelectValue placeholder="Select status" />
+                  </SelectTrigger>
+                </FormControl>
+                <SelectContent>
+                  {coachStatusOptions.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
 
         <FormField
           control={form.control}

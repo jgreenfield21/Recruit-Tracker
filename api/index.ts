@@ -59,6 +59,7 @@ const coaches = pgTable("coaches", {
   school: text("school").notNull(),
   position: text("position"),
   division: text("division"),
+  state: text("state"),
   salutation: text("salutation"),
   notes: text("notes"),
   status: text("status").notNull().default("not_contacted"),
@@ -197,6 +198,7 @@ async function initializeDatabase() {
         favorite BOOLEAN NOT NULL DEFAULT FALSE
       );
       ALTER TABLE coaches ADD COLUMN IF NOT EXISTS favorite BOOLEAN NOT NULL DEFAULT FALSE;
+      ALTER TABLE coaches ADD COLUMN IF NOT EXISTS state TEXT;
       
       CREATE TABLE IF NOT EXISTS contacts (
         id VARCHAR(36) PRIMARY KEY,
@@ -696,6 +698,7 @@ app.post("/api/coaches/import", isAuthenticated, async (req, res) => {
           phone: row.phone?.trim() || undefined,
           position: row.position?.trim() || undefined,
           division: row.division?.trim() || undefined,
+          state: row.state?.trim() || undefined,
           status: "not_contacted",
         });
         await storage.createCoach(data);

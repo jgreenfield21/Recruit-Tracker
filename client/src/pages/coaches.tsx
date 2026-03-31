@@ -63,7 +63,7 @@ import { useToast } from "@/hooks/use-toast";
 import type { Coach, Contact, CoachStatus } from "@shared/schema";
 import { coachStatusOptions, divisionOptions } from "@shared/schema";
 
-type SortField = "name" | "school" | "position" | "division" | "status" | "lastContact" | "favorite";
+type SortField = "name" | "school" | "position" | "state" | "division" | "status" | "lastContact" | "favorite";
 type SortDirection = "asc" | "desc";
 type SortConfig = { field: SortField; direction: SortDirection };
 
@@ -222,6 +222,9 @@ export default function Coaches() {
           break;
         case "position":
           cmp = (a.position || "").localeCompare(b.position || "");
+          break;
+        case "state":
+          cmp = (a.state || "").localeCompare(b.state || "");
           break;
         case "division": {
           const aDiv = divisionOrder[a.division || ""] ?? 99;
@@ -410,6 +413,7 @@ export default function Coaches() {
                     <SortableHeader field="position" className="hidden md:table-cell">Position</SortableHeader>
                     <TableHead className="hidden md:table-cell">Salutation</TableHead>
                     <SortableHeader field="division" className="hidden lg:table-cell">Division</SortableHeader>
+                    <SortableHeader field="state" className="hidden xl:table-cell">State</SortableHeader>
                     <SortableHeader field="status">Status</SortableHeader>
                     <SortableHeader field="lastContact" className="hidden sm:table-cell">Last Contact</SortableHeader>
                     <TableHead className="w-[60px]"></TableHead>
@@ -448,6 +452,9 @@ export default function Coaches() {
                         </TableCell>
                         <TableCell className="hidden lg:table-cell">
                           {coach.division || "-"}
+                        </TableCell>
+                        <TableCell className="hidden xl:table-cell">
+                          {coach.state || "-"}
                         </TableCell>
                         <TableCell>
                           <StatusBadge status={coach.status as CoachStatus} />

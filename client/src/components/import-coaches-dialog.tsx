@@ -34,6 +34,7 @@ interface ParsedCoach {
   phone: string;
   school: string;
   division: string;
+  state: string;
 }
 
 interface ImportResult {
@@ -42,7 +43,7 @@ interface ImportResult {
   error?: string;
 }
 
-const KNOWN_HEADERS = ["name", "coach name", "full name", "email", "email address", "phone", "phone number", "telephone", "position", "title", "role", "school", "university", "college", "division", "div"];
+const KNOWN_HEADERS = ["name", "coach name", "full name", "email", "email address", "phone", "phone number", "telephone", "position", "title", "role", "school", "university", "college", "division", "div", "state", "st"];
 
 function looksLikeHeaderRow(parts: string[]): boolean {
   const lowered = parts.map((p) => p.toLowerCase());
@@ -65,6 +66,7 @@ function parseRawText(text: string, school: string, division: string): ParsedCoa
     const schoolIdx = headers.findIndex((h) => h === "school" || h === "university" || h === "college");
     const positionIdx = headers.findIndex((h) => h === "position" || h === "title" || h === "role");
     const divisionIdx = headers.findIndex((h) => h === "division" || h === "div");
+    const stateIdx = headers.findIndex((h) => h === "state" || h === "st");
 
     for (let i = 1; i < lines.length; i++) {
       const parts = parseCsvFields(lines[i]);
@@ -76,6 +78,7 @@ function parseRawText(text: string, school: string, division: string): ParsedCoa
         school: schoolIdx !== -1 ? parts[schoolIdx] || school : school,
         position: positionIdx !== -1 ? parts[positionIdx] || "" : "",
         division: divisionIdx !== -1 ? parts[divisionIdx] || division : division,
+        state: stateIdx !== -1 ? parts[stateIdx] || "" : "",
       });
     }
   } else {
@@ -94,6 +97,7 @@ function parseRawText(text: string, school: string, division: string): ParsedCoa
         phone: phonePart || "",
         school,
         division,
+        state: "",
       });
     }
   }
@@ -143,6 +147,7 @@ function parseCsvFile(content: string, defaultSchool: string, defaultDivision: s
   const schoolIdx = headers.findIndex((h) => h === "school" || h === "university" || h === "college");
   const positionIdx = headers.findIndex((h) => h === "position" || h === "title" || h === "role");
   const divisionIdx = headers.findIndex((h) => h === "division" || h === "div");
+  const stateIdx = headers.findIndex((h) => h === "state" || h === "st");
 
   const hasHeaders = nameIdx !== -1 || emailIdx !== -1;
 
@@ -161,6 +166,7 @@ function parseCsvFile(content: string, defaultSchool: string, defaultDivision: s
         school: schoolIdx !== -1 ? parts[schoolIdx] || defaultSchool : defaultSchool,
         position: positionIdx !== -1 ? parts[positionIdx] || "" : "",
         division: divisionIdx !== -1 ? parts[divisionIdx] || defaultDivision : defaultDivision,
+        state: stateIdx !== -1 ? parts[stateIdx] || "" : "",
       });
     } else {
       const emailPart = parts.find((p) => p.includes("@"));
@@ -174,6 +180,7 @@ function parseCsvFile(content: string, defaultSchool: string, defaultDivision: s
         phone: phonePart || "",
         school: defaultSchool,
         division: defaultDivision,
+        state: "",
       });
     }
   }
@@ -411,6 +418,7 @@ export function ImportCoachesDialog({ open, onOpenChange }: ImportCoachesDialogP
                       <div className="text-xs text-muted-foreground">
                         {coach.school}
                         {coach.division && <span> · {coach.division}</span>}
+                        {coach.state && <span> · {coach.state}</span>}
                       </div>
                     </div>
                     <Button

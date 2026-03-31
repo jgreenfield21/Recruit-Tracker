@@ -21,6 +21,7 @@ export const coaches = pgTable("coaches", {
   school: text("school").notNull(),
   position: text("position"),
   division: text("division"),
+  state: text("state"),
   salutation: text("salutation"),
   notes: text("notes"),
   status: text("status").notNull().default("not_contacted"),
