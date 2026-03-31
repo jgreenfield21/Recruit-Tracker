@@ -33,16 +33,62 @@ async function seedCoach(page: Page, overrides: Partial<{
   return coach as { id: string };
 }
 
-test.describe("Status filter chips — multi-select OR logic", () => {
-  test("activating two chips shows coaches matching either status", async ({ page }) => {
+const ALL_STATUS_VALUES = [
+  "not_contacted",
+  "contacted",
+  "awaiting_response",
+  "follow_up_needed",
+  "responded",
+] as const;
+
+test.describe("Status filter chips — each chip filters independently", () => {
+  for (const status of ALL_STATUS_VALUES) {
+    test(`activating '${status}' chip shows only coaches with that status`, async ({ page }) => {
+      const id = uid();
+      const targetCoach = await seedCoach(page, {
+        name: `Target-${status}-${id}`,
+        email: `target-${status}-${id}@t.com`,
+        school: `ChipTest-${id}`,
+        status,
+      });
+      const otherStatus = status === "not_contacted" ? "responded" : "not_contacted";
+      const otherCoach = await seedCoach(page, {
+        name: `Other-${id}`,
+        email: `other-${id}@t.com`,
+        school: `ChipTest-${id}`,
+        status: otherStatus,
+      });
+
+      try {
+        await page.goto(`${BASE}/compose`);
+        await page.waitForSelector('[data-testid="status-filter-chips"]');
+
+        await page.locator('[data-testid="input-coach-search"]').fill(`ChipTest-${id}`);
+        await page.waitForTimeout(200);
+
+        await page.locator(`[data-testid="chip-status-${status}"]`).click();
+
+        await expect(page.locator(`[data-testid="coach-recipient-${targetCoach.id}"]`)).toBeVisible();
+        await expect(page.locator(`[data-testid="coach-recipient-${otherCoach.id}"]`)).not.toBeVisible();
+      } finally {
+        await apiDelete(page, `/api/coaches/${targetCoach.id}`);
+        await apiDelete(page, `/api/coaches/${otherCoach.id}`);
+      }
+    });
+  }
+
+  test("activating two chips shows coaches matching either status (OR logic)", async ({ page }) => {
     const id = uid();
-    const ncCoach = await seedCoach(page, { name: `NC-${id}`, email: `nc-${id}@t.com`, school: `S-${id}`, status: "not_contacted" });
-    const ctCoach = await seedCoach(page, { name: `CT-${id}`, email: `ct-${id}@t.com`, school: `S-${id}`, status: "contacted" });
-    const rdCoach = await seedCoach(page, { name: `RD-${id}`, email: `rd-${id}@t.com`, school: `S-${id}`, status: "responded" });
+    const ncCoach = await seedCoach(page, { name: `NC-${id}`, email: `nc-${id}@t.com`, school: `ChipOR-${id}`, status: "not_contacted" });
+    const ctCoach = await seedCoach(page, { name: `CT-${id}`, email: `ct-${id}@t.com`, school: `ChipOR-${id}`, status: "contacted" });
+    const rdCoach = await seedCoach(page, { name: `RD-${id}`, email: `rd-${id}@t.com`, school: `ChipOR-${id}`, status: "responded" });
 
     try {
       await page.goto(`${BASE}/compose`);
       await page.waitForSelector('[data-testid="status-filter-chips"]');
+
+      await page.locator('[data-testid="input-coach-search"]').fill(`ChipOR-${id}`);
+      await page.waitForTimeout(200);
 
       await page.locator('[data-testid="chip-status-not_contacted"]').click();
       await page.locator('[data-testid="chip-status-contacted"]').click();
@@ -59,12 +105,15 @@ test.describe("Status filter chips — multi-select OR logic", () => {
 
   test("clear-all button removes all status filters and restores full list", async ({ page }) => {
     const id = uid();
-    const c1 = await seedCoach(page, { name: `A-${id}`, email: `a-${id}@t.com`, school: `S-${id}`, status: "not_contacted" });
-    const c2 = await seedCoach(page, { name: `B-${id}`, email: `b-${id}@t.com`, school: `S-${id}`, status: "responded" });
+    const c1 = await seedCoach(page, { name: `A-${id}`, email: `a-${id}@t.com`, school: `ChipClr-${id}`, status: "not_contacted" });
+    const c2 = await seedCoach(page, { name: `B-${id}`, email: `b-${id}@t.com`, school: `ChipClr-${id}`, status: "responded" });
 
     try {
       await page.goto(`${BASE}/compose`);
       await page.waitForSelector('[data-testid="status-filter-chips"]');
+
+      await page.locator('[data-testid="input-coach-search"]').fill(`ChipClr-${id}`);
+      await page.waitForTimeout(200);
 
       await page.locator('[data-testid="chip-status-not_contacted"]').click();
 
@@ -175,6 +224,72 @@ test.describe("Sort modes", () => {
     } finally {
       await apiDelete(page, `/api/coaches/${aCoach.id}`);
       await apiDelete(page, `/api/coaches/${zCoach.id}`);
+    }
+  });
+
+  test("By Division sort places D1 coaches before D2 coaches", async ({ page }) => {
+    const id = uid();
+    const d2Coach = await seedCoach(page, { name: `D2-Coach-${id}`, email: `d2-${id}@t.com`, school: `S-${id}`, division: "D2", favorite: false });
+    const d1Coach = await seedCoach(page, { name: `D1-Coach-${id}`, email: `d1-${id}@t.com`, school: `S-${id}`, division: "D1", favorite: false });
+
+    try {
+      await page.goto(`${BASE}/compose`);
+      const sortSelect = page.locator('[data-testid="select-sort-mode"]');
+      await sortSelect.click();
+      await page.locator('[role="option"]', { hasText: "By Division" }).click();
+
+      const rows = page.locator('[data-testid^="coach-recipient-"]');
+      const allIds = await rows.evaluateAll((els) =>
+        els.map((el) => el.getAttribute("data-testid")?.replace("coach-recipient-", ""))
+      );
+      const d1Idx = allIds.indexOf(d1Coach.id);
+      const d2Idx = allIds.indexOf(d2Coach.id);
+      expect(d1Idx).toBeGreaterThanOrEqual(0);
+      expect(d2Idx).toBeGreaterThanOrEqual(0);
+      expect(d1Idx).toBeLessThan(d2Idx);
+    } finally {
+      await apiDelete(page, `/api/coaches/${d1Coach.id}`);
+      await apiDelete(page, `/api/coaches/${d2Coach.id}`);
+    }
+  });
+
+  test("Last Contacted (oldest first) places the oldest-contacted coach before the recently-contacted one", async ({ page }) => {
+    const id = uid();
+    const olderCoach = await seedCoach(page, { name: `Older-${id}`, email: `older-${id}@t.com`, school: `S-${id}` });
+    const newerCoach = await seedCoach(page, { name: `Newer-${id}`, email: `newer-${id}@t.com`, school: `S-${id}` });
+
+    await apiPost(page, "/api/contacts", {
+      coachId: olderCoach.id,
+      method: "email",
+      notes: "Older contact",
+      date: "2024-01-01",
+    });
+    await page.waitForTimeout(100);
+    await apiPost(page, "/api/contacts", {
+      coachId: newerCoach.id,
+      method: "email",
+      notes: "Newer contact",
+      date: "2025-06-01",
+    });
+
+    try {
+      await page.goto(`${BASE}/compose`);
+      const sortSelect = page.locator('[data-testid="select-sort-mode"]');
+      await sortSelect.click();
+      await page.locator('[role="option"]', { hasText: "Last Contacted (oldest)" }).click();
+
+      const rows = page.locator('[data-testid^="coach-recipient-"]');
+      const allIds = await rows.evaluateAll((els) =>
+        els.map((el) => el.getAttribute("data-testid")?.replace("coach-recipient-", ""))
+      );
+      const olderIdx = allIds.indexOf(olderCoach.id);
+      const newerIdx = allIds.indexOf(newerCoach.id);
+      expect(olderIdx).toBeGreaterThanOrEqual(0);
+      expect(newerIdx).toBeGreaterThanOrEqual(0);
+      expect(olderIdx).toBeLessThan(newerIdx);
+    } finally {
+      await apiDelete(page, `/api/coaches/${olderCoach.id}`);
+      await apiDelete(page, `/api/coaches/${newerCoach.id}`);
     }
   });
 });
